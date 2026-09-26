@@ -74,8 +74,8 @@ fun FoldersTab(
     val songs by viewModel.allSongs.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
     val currentSong by viewModel.currentSong.collectAsState()
-    val sortBy by viewModel.sortBy.collectAsState()
-    val sortDirection by viewModel.sortDirection.collectAsState()
+    val sortBy by viewModel.foldersSortBy.collectAsState()
+    val sortDirection by viewModel.foldersSortDirection.collectAsState()
     val isScanning by viewModel.isScanning.collectAsState()
     val selectedFolder by viewModel.selectedFolder.collectAsState()
     val layoutMode by viewModel.foldersLayoutMode.collectAsState()
@@ -119,7 +119,19 @@ fun FoldersTab(
     ) {
         if (selectedFolder != null) {
             // Folder Detail view
-            val folderSongs = songs.filter { it.folderPath == selectedFolder || (selectedFolder == "Root / Unknown" && it.folderPath.isBlank()) }
+            val rawFolderSongs = remember(songs, selectedFolder) {
+                songs.filter { it.folderPath == selectedFolder || (selectedFolder == "Root / Unknown" && it.folderPath.isBlank()) }
+            }
+            val folderSongs = remember(rawFolderSongs, sortBy, sortDirection) {
+                val s = when (sortBy) {
+                    com.example.ui.viewmodel.SortBy.TITLE -> rawFolderSongs.sortedBy { it.title.lowercase() }
+                    com.example.ui.viewmodel.SortBy.DATE_MODIFIED -> rawFolderSongs.sortedBy { it.dateModified }
+                    com.example.ui.viewmodel.SortBy.DATE_ADDED -> rawFolderSongs.sortedBy { it.dateAdded }
+                    com.example.ui.viewmodel.SortBy.DURATION -> rawFolderSongs.sortedBy { it.duration }
+                    com.example.ui.viewmodel.SortBy.PLAY_COUNT -> rawFolderSongs.sortedBy { it.playCount }
+                }
+                if (sortDirection == SortDirection.DESCENDING) s.reversed() else s
+            }
             val folderName = File(selectedFolder ?: "").name.ifBlank { selectedFolder ?: "" }
 
             Column(modifier = Modifier.fillMaxSize()) {
@@ -146,14 +158,16 @@ fun FoldersTab(
                     itemCount = folderSongs.size,
                     sortBy = sortBy,
                     sortDirection = sortDirection,
-                    onSortByChanged = { viewModel.sortBy.value = it },
+                    onSortByChanged = { viewModel.setTabSort("folders", newSortBy = it) },
                     onToggleDirection = {
-                        viewModel.sortDirection.value =
-                            if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING
+                        viewModel.setTabSort(
+                            "folders",
+                            newSortDir = if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING
                             else SortDirection.ASCENDING
+                        )
                     },
                     layoutMode = layoutMode,
-                    onLayoutModeChanged = { viewModel.foldersLayoutMode.value = it },
+                    onLayoutModeChanged = { viewModel.setLayoutMode("folders", it) },
                     accentColor = dynamicAccent
                 )
 
@@ -300,14 +314,16 @@ fun FoldersTab(
                     itemCount = folders.size,
                     sortBy = sortBy,
                     sortDirection = sortDirection,
-                    onSortByChanged = { viewModel.sortBy.value = it },
+                    onSortByChanged = { viewModel.setTabSort("folders", newSortBy = it) },
                     onToggleDirection = {
-                        viewModel.sortDirection.value =
-                            if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING
+                        viewModel.setTabSort(
+                            "folders",
+                            newSortDir = if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING
                             else SortDirection.ASCENDING
+                        )
                     },
                     layoutMode = layoutMode,
-                    onLayoutModeChanged = { viewModel.foldersLayoutMode.value = it },
+                    onLayoutModeChanged = { viewModel.setLayoutMode("folders", it) },
                     accentColor = dynamicAccent
                 )
 

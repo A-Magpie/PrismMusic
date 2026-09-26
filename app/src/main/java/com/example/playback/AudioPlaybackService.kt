@@ -116,6 +116,7 @@ class AudioPlaybackService : MediaSessionService() {
                     startWidgetProgressUpdates()
                 } else {
                     stopWidgetProgressUpdates()
+                    saveCurrentPlaybackState()
                 }
                 WidgetUpdateHelper.updateWidgets(
                     applicationContext,
@@ -235,12 +236,12 @@ class AudioPlaybackService : MediaSessionService() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         val isPlaying = playerEngine.isPlaying.value
         val hasTrack = currentSong != null
+        saveCurrentPlaybackState()
         if (isPlaying || hasTrack) {
             // Keep playing and keep foreground notification active!
             // Crucially: DO NOT call super.onTaskRemoved(rootIntent) as it triggers stopSelf() in MediaSessionService
             updateNotification()
         } else {
-            saveCurrentPlaybackState()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -260,6 +261,7 @@ class AudioPlaybackService : MediaSessionService() {
         val song = queue.getOrNull(currentQueueIndex) ?: return
         loadTrack(song, 0L, playImmediately)
         onQueueChanged?.invoke(queue)
+        saveCurrentPlaybackState()
     }
 
     fun playTrack(song: Song) {
@@ -273,6 +275,7 @@ class AudioPlaybackService : MediaSessionService() {
             loadTrack(song, 0L, true)
             onQueueChanged?.invoke(queue)
         }
+        saveCurrentPlaybackState()
     }
 
     fun playQueueIndex(index: Int) {
@@ -280,6 +283,7 @@ class AudioPlaybackService : MediaSessionService() {
             currentQueueIndex = index
             loadTrack(queue[index], 0L, true)
             onQueueChanged?.invoke(queue)
+            saveCurrentPlaybackState()
         }
     }
 
@@ -288,12 +292,14 @@ class AudioPlaybackService : MediaSessionService() {
         val nextIdx = (currentQueueIndex + 1).coerceAtMost(queue.size)
         queue.add(nextIdx, song)
         onQueueChanged?.invoke(queue)
+        saveCurrentPlaybackState()
     }
 
     fun addToQueueEnd(song: Song) {
         // "Add to Queue" appends to very end
         queue.add(song)
         onQueueChanged?.invoke(queue)
+        saveCurrentPlaybackState()
     }
 
     fun reorderQueue(fromIndex: Int, toIndex: Int) {
@@ -308,6 +314,7 @@ class AudioPlaybackService : MediaSessionService() {
                 currentQueueIndex++
             }
             onQueueChanged?.invoke(queue)
+            saveCurrentPlaybackState()
         }
     }
 
@@ -328,6 +335,7 @@ class AudioPlaybackService : MediaSessionService() {
             }
             onQueueChanged?.invoke(queue)
             updateNotification()
+            saveCurrentPlaybackState()
         }
     }
 
@@ -338,6 +346,7 @@ class AudioPlaybackService : MediaSessionService() {
             playerEngine.togglePlayPause()
         }
         updateNotification()
+        saveCurrentPlaybackState()
     }
 
     fun playNext() {

@@ -53,9 +53,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -104,7 +106,7 @@ fun QueueSheet(
 
     var showSavePlaylistDialog by remember { mutableStateOf(false) }
 
-    // Drag-and-drop state
+    // Drag-and-drop state with real-time incremental swapping
     var draggedIndex by remember { mutableStateOf<Int?>(null) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
     val itemHeight = 60.dp
@@ -112,25 +114,57 @@ fun QueueSheet(
 
     val listState = rememberLazyListState()
 
-    // Real-time target index calculation with bounds clamp
-    val targetDropIndex = remember(draggedIndex, dragOffsetY, queue.size) {
-        val from = draggedIndex ?: return@remember null
-        val offsetSteps = (dragOffsetY / itemHeightPx).roundToInt()
-        (from + offsetSteps).coerceIn(0, (queue.size - 1).coerceAtLeast(0))
+    // Stable tracking tokens per slot that swap with real-time reordering
+    val itemTokens = remember { mutableStateListOf<Long>() }
+    LaunchedEffect(queue.size) {
+        if (draggedIndex == null || itemTokens.size != queue.size) {
+            itemTokens.clear()
+            itemTokens.addAll(queue.mapIndexed { idx, s -> s.id * 31L + idx })
+        }
     }
 
-    // Auto-scroll while dragging near viewport edges without cancelling on each frame
+    // Edge auto-scroll tracking that keeps the dragged item perfectly locked to the finger
     val currentDragOffsetY by androidx.compose.runtime.rememberUpdatedState(dragOffsetY)
+    val currentDraggedIdx by androidx.compose.runtime.rememberUpdatedState(draggedIndex)
     LaunchedEffect(draggedIndex != null) {
         if (draggedIndex != null) {
-            while (isActive && draggedIndex != null) {
+            while (isActive && currentDraggedIdx != null) {
+                val from = currentDraggedIdx ?: break
                 val offset = currentDragOffsetY
-                if (offset < -70f) {
-                    listState.scrollBy(-18f)
-                } else if (offset > 70f) {
-                    listState.scrollBy(18f)
+                val threshold = itemHeightPx * 0.5f
+
+                if (offset < -30f && from > 0) {
+                    val scrollDelta = -14f
+                    listState.scrollBy(scrollDelta)
+                    dragOffsetY -= scrollDelta
+                    if (dragOffsetY < -threshold && from > 0) {
+                        val to = from - 1
+                        if (from in itemTokens.indices && to in itemTokens.indices) {
+                            val temp = itemTokens[from]
+                            itemTokens[from] = itemTokens[to]
+                            itemTokens[to] = temp
+                        }
+                        viewModel.reorderQueue(from, to)
+                        draggedIndex = to
+                        dragOffsetY += itemHeightPx
+                    }
+                } else if (offset > 30f && from < queue.size - 1) {
+                    val scrollDelta = 14f
+                    listState.scrollBy(scrollDelta)
+                    dragOffsetY -= scrollDelta
+                    if (dragOffsetY > threshold && from < queue.size - 1) {
+                        val to = from + 1
+                        if (from in itemTokens.indices && to in itemTokens.indices) {
+                            val temp = itemTokens[from]
+                            itemTokens[from] = itemTokens[to]
+                            itemTokens[to] = temp
+                        }
+                        viewModel.reorderQueue(from, to)
+                        draggedIndex = to
+                        dragOffsetY -= itemHeightPx
+                    }
                 }
-                delay(24)
+                delay(20)
             }
         }
     }
@@ -312,20 +346,11 @@ fun QueueSheet(
                     ) {
                         itemsIndexed(
                             items = queue,
-                            key = { index, song -> "${song.id}_$index" }
+                            key = { index, song ->
+                                if (index in itemTokens.indices) itemTokens[index] else (song.id * 31L + index)
+                            }
                         ) { index, song ->
                             val isBeingDragged = (draggedIndex == index)
-
-                            // Instant displacement offset for drop gap preview (snaps to 0 on drop so reorder is instant)
-                            val animatedOffset = if (draggedIndex != null && targetDropIndex != null && !isBeingDragged) {
-                                val from = draggedIndex!!
-                                val to = targetDropIndex!!
-                                when {
-                                    from < to && index in (from + 1)..to -> -itemHeightPx
-                                    from > to && index in to until from -> itemHeightPx
-                                    else -> 0f
-                                }
-                            } else 0f
 
                             QueueItemRow(
                                 song = song,
@@ -335,7 +360,7 @@ fun QueueSheet(
                                 isPlaying = (index == currentIndex && currentSong?.id == song.id),
                                 isDragged = isBeingDragged,
                                 accentColor = dynamicAccent,
-                                dragOffsetY = if (isBeingDragged) dragOffsetY else animatedOffset,
+                                dragOffsetY = if (isBeingDragged) dragOffsetY else 0f,
                                 onPlay = { viewModel.playQueueIndex(index) },
                                 onRemove = { viewModel.removeFromQueue(index) },
                                 onDragStart = {
@@ -344,15 +369,33 @@ fun QueueSheet(
                                 },
                                 onDrag = { deltaY ->
                                     dragOffsetY += deltaY
+                                    val from = draggedIndex ?: return@QueueItemRow
+                                    val threshold = itemHeightPx * 0.5f
+                                    if (dragOffsetY > threshold && from < queue.size - 1) {
+                                        val to = from + 1
+                                        if (from in itemTokens.indices && to in itemTokens.indices) {
+                                            val temp = itemTokens[from]
+                                            itemTokens[from] = itemTokens[to]
+                                            itemTokens[to] = temp
+                                        }
+                                        viewModel.reorderQueue(from, to)
+                                        draggedIndex = to
+                                        dragOffsetY -= itemHeightPx
+                                    } else if (dragOffsetY < -threshold && from > 0) {
+                                        val to = from - 1
+                                        if (from in itemTokens.indices && to in itemTokens.indices) {
+                                            val temp = itemTokens[from]
+                                            itemTokens[from] = itemTokens[to]
+                                            itemTokens[to] = temp
+                                        }
+                                        viewModel.reorderQueue(from, to)
+                                        draggedIndex = to
+                                        dragOffsetY += itemHeightPx
+                                    }
                                 },
                                 onDragEnd = {
-                                    val from = draggedIndex
-                                    val to = targetDropIndex
                                     draggedIndex = null
                                     dragOffsetY = 0f
-                                    if (from != null && to != null && from != to) {
-                                        viewModel.reorderQueue(from, to)
-                                    }
                                 }
                             )
                         }
@@ -443,6 +486,9 @@ private fun QueueItemRow(
     onDragEnd: () -> Unit
 ) {
     var swipeOffset by remember { mutableFloatStateOf(0f) }
+    val currentOnDrag by rememberUpdatedState(onDrag)
+    val currentOnDragStart by rememberUpdatedState(onDragStart)
+    val currentOnDragEnd by rememberUpdatedState(onDragEnd)
 
     val isPlayed = index < currentIndex
     val isCurrent = (index == currentIndex)
@@ -476,17 +522,6 @@ private fun QueueItemRow(
                     }
                 )
             }
-            .pointerInput(index) {
-                detectDragGesturesAfterLongPress(
-                    onDragStart = { onDragStart() },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        onDrag(dragAmount.y)
-                    },
-                    onDragEnd = { onDragEnd() },
-                    onDragCancel = { onDragEnd() }
-                )
-            }
             .glassmorphic(
                 shape = RoundedCornerShape(12.dp),
                 backgroundColor = when {
@@ -509,19 +544,19 @@ private fun QueueItemRow(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Drag Handle: Immediate touch and drag without requiring long-press
+            // Drag Handle: Immediate touch and drag locked to finger without interruption
             Box(
                 modifier = Modifier
                     .padding(end = 8.dp)
-                    .pointerInput(index) {
+                    .pointerInput(song.id) {
                         detectDragGestures(
-                            onDragStart = { onDragStart() },
+                            onDragStart = { currentOnDragStart() },
                             onDrag = { change, dragAmount ->
                                 change.consume()
-                                onDrag(dragAmount.y)
+                                currentOnDrag(dragAmount.y)
                             },
-                            onDragEnd = { onDragEnd() },
-                            onDragCancel = { onDragEnd() }
+                            onDragEnd = { currentOnDragEnd() },
+                            onDragCancel = { currentOnDragEnd() }
                         )
                     },
                 contentAlignment = Alignment.Center

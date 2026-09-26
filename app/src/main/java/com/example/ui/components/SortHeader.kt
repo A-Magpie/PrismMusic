@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.AccentCyan
+import com.example.ui.theme.AccentGray
 import com.example.ui.theme.DarkCardGlass
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextWhite
@@ -54,7 +55,7 @@ fun SortHeader(
     modifier: Modifier = Modifier,
     layoutMode: ViewLayoutMode? = null,
     onLayoutModeChanged: ((ViewLayoutMode) -> Unit)? = null,
-    accentColor: Color = AccentCyan
+    accentColor: Color = AccentGray
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 

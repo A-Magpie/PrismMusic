@@ -66,8 +66,8 @@ fun FavoritesTab(
     val favorites by viewModel.favoriteSongs.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
     val currentSong by viewModel.currentSong.collectAsState()
-    val sortBy by viewModel.sortBy.collectAsState()
-    val sortDirection by viewModel.sortDirection.collectAsState()
+    val sortBy by viewModel.favoritesSortBy.collectAsState()
+    val sortDirection by viewModel.favoritesSortDirection.collectAsState()
     val layoutMode by viewModel.favoritesLayoutMode.collectAsState()
     val dynamicAccent by viewModel.dynamicAccentColor.collectAsState()
 
@@ -148,14 +148,13 @@ fun FavoritesTab(
                 itemCount = sortedFavorites.size,
                 sortBy = sortBy,
                 sortDirection = sortDirection,
-                onSortByChanged = { viewModel.sortBy.value = it },
+                onSortByChanged = { viewModel.setTabSort("favorites", newSortBy = it) },
                 onToggleDirection = {
-                    viewModel.sortDirection.value =
-                        if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING
-                        else SortDirection.ASCENDING
+                    val newDir = if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING else SortDirection.ASCENDING
+                    viewModel.setTabSort("favorites", newSortDir = newDir)
                 },
                 layoutMode = layoutMode,
-                onLayoutModeChanged = { viewModel.favoritesLayoutMode.value = it },
+                onLayoutModeChanged = { viewModel.setLayoutMode("favorites", it) },
                 accentColor = dynamicAccent
             )
 

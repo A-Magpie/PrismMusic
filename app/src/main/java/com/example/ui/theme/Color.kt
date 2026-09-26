@@ -10,9 +10,10 @@ val DarkCardGlass = Color(0xCC12121A)
 val GlassBorder = Color(0x2EFFFFFF)
 val GlassHighlight = Color(0x1AFFFFFF)
 
-// Accent Neons (Purple completely removed per requirement)
-val AccentCyan = Color(0xFF00E5FF)
-val AccentPurple = AccentCyan // Fallback alias to guarantee no purple ever displays
+// Accent Colors (Cyan replaced with sleek gray per requirement; Purple completely removed)
+val AccentGray = Color(0xFFAAAAAA)
+val AccentCyan = AccentGray // Alias for backwards compatibility so all previous usages become sleek gray
+val AccentPurple = AccentGray // Fallback alias to guarantee no purple ever displays
 val AccentPink = Color(0xFFE040FB)
 val AccentAmber = Color(0xFFFFB74D)
 val AccentRed = Color(0xFFFF5252)

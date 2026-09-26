@@ -93,8 +93,8 @@ fun PlaylistsTab(
     val playlists by viewModel.allPlaylists.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
     val currentSong by viewModel.currentSong.collectAsState()
-    val sortBy by viewModel.sortBy.collectAsState()
-    val sortDirection by viewModel.sortDirection.collectAsState()
+    val sortBy by viewModel.playlistsSortBy.collectAsState()
+    val sortDirection by viewModel.playlistsSortDirection.collectAsState()
     val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
     val gridColumns by viewModel.playlistGridColumns.collectAsState()
     val layoutMode by viewModel.playlistsLayoutMode.collectAsState()
@@ -159,7 +159,17 @@ fun PlaylistsTab(
         if (selectedPlaylist != null) {
             val playlist = selectedPlaylist!!
             val playlistSongsFlow = remember(playlist.id) { viewModel.getSongsForPlaylist(playlist.id) }
-            val songsInPlaylist by playlistSongsFlow.collectAsState(initial = emptyList())
+            val rawSongsInPlaylist by playlistSongsFlow.collectAsState(initial = emptyList())
+            val songsInPlaylist = remember(rawSongsInPlaylist, sortBy, sortDirection) {
+                val s = when (sortBy) {
+                    SortBy.TITLE -> rawSongsInPlaylist.sortedBy { it.title.lowercase() }
+                    SortBy.DATE_MODIFIED -> rawSongsInPlaylist.sortedBy { it.dateModified }
+                    SortBy.DATE_ADDED -> rawSongsInPlaylist.sortedBy { it.dateAdded }
+                    SortBy.DURATION -> rawSongsInPlaylist.sortedBy { it.duration }
+                    SortBy.PLAY_COUNT -> rawSongsInPlaylist.sortedBy { it.playCount }
+                }
+                if (sortDirection == SortDirection.DESCENDING) s.reversed() else s
+            }
 
             Column(modifier = Modifier.fillMaxSize()) {
                 // Header with back, title, and actions
@@ -220,14 +230,13 @@ fun PlaylistsTab(
                     itemCount = songsInPlaylist.size,
                     sortBy = sortBy,
                     sortDirection = sortDirection,
-                    onSortByChanged = { viewModel.sortBy.value = it },
+                    onSortByChanged = { viewModel.setTabSort("playlists", newSortBy = it) },
                     onToggleDirection = {
-                        viewModel.sortDirection.value =
-                            if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING
-                            else SortDirection.ASCENDING
+                        val newDir = if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING else SortDirection.ASCENDING
+                        viewModel.setTabSort("playlists", newSortDir = newDir)
                     },
                     layoutMode = layoutMode,
-                    onLayoutModeChanged = { viewModel.playlistsLayoutMode.value = it },
+                    onLayoutModeChanged = { viewModel.setLayoutMode("playlists", it) },
                     accentColor = dynamicAccent
                 )
 
@@ -415,14 +424,13 @@ fun PlaylistsTab(
                     itemCount = sortedPlaylists.size,
                     sortBy = sortBy,
                     sortDirection = sortDirection,
-                    onSortByChanged = { viewModel.sortBy.value = it },
+                    onSortByChanged = { viewModel.setTabSort("playlists", newSortBy = it) },
                     onToggleDirection = {
-                        viewModel.sortDirection.value =
-                            if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING
-                            else SortDirection.ASCENDING
+                        val newDir = if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING else SortDirection.ASCENDING
+                        viewModel.setTabSort("playlists", newSortDir = newDir)
                     },
                     layoutMode = layoutMode,
-                    onLayoutModeChanged = { viewModel.playlistsLayoutMode.value = it },
+                    onLayoutModeChanged = { viewModel.setLayoutMode("playlists", it) },
                     accentColor = dynamicAccent
                 )
 

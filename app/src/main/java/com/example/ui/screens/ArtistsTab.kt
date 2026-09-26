@@ -72,8 +72,8 @@ fun ArtistsTab(
     val songs by viewModel.allSongs.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
     val currentSong by viewModel.currentSong.collectAsState()
-    val sortBy by viewModel.sortBy.collectAsState()
-    val sortDirection by viewModel.sortDirection.collectAsState()
+    val sortBy by viewModel.artistsSortBy.collectAsState()
+    val sortDirection by viewModel.artistsSortDirection.collectAsState()
     val selectedArtist by viewModel.selectedArtist.collectAsState()
     val layoutMode by viewModel.artistsLayoutMode.collectAsState()
     val dynamicAccent by viewModel.dynamicAccentColor.collectAsState()
@@ -114,7 +114,17 @@ fun ArtistsTab(
             .testTag("artists_tab")
     ) {
         if (selectedArtist != null) {
-            val artistTracks = songs.filter { it.artist == selectedArtist }
+            val rawArtistTracks = remember(songs, selectedArtist) { songs.filter { it.artist == selectedArtist } }
+            val artistTracks = remember(rawArtistTracks, sortBy, sortDirection) {
+                val s = when (sortBy) {
+                    com.example.ui.viewmodel.SortBy.TITLE -> rawArtistTracks.sortedBy { it.title.lowercase() }
+                    com.example.ui.viewmodel.SortBy.DATE_MODIFIED -> rawArtistTracks.sortedBy { it.dateModified }
+                    com.example.ui.viewmodel.SortBy.DATE_ADDED -> rawArtistTracks.sortedBy { it.dateAdded }
+                    com.example.ui.viewmodel.SortBy.DURATION -> rawArtistTracks.sortedBy { it.duration }
+                    com.example.ui.viewmodel.SortBy.PLAY_COUNT -> rawArtistTracks.sortedBy { it.playCount }
+                }
+                if (sortDirection == SortDirection.DESCENDING) s.reversed() else s
+            }
 
             Column(modifier = Modifier.fillMaxSize()) {
                 Row(
@@ -140,14 +150,16 @@ fun ArtistsTab(
                     itemCount = artistTracks.size,
                     sortBy = sortBy,
                     sortDirection = sortDirection,
-                    onSortByChanged = { viewModel.sortBy.value = it },
+                    onSortByChanged = { viewModel.setTabSort("artists", newSortBy = it) },
                     onToggleDirection = {
-                        viewModel.sortDirection.value =
-                            if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING
+                        viewModel.setTabSort(
+                            "artists",
+                            newSortDir = if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING
                             else SortDirection.ASCENDING
+                        )
                     },
                     layoutMode = layoutMode,
-                    onLayoutModeChanged = { viewModel.artistsLayoutMode.value = it },
+                    onLayoutModeChanged = { viewModel.setLayoutMode("artists", it) },
                     accentColor = dynamicAccent
                 )
 
@@ -275,14 +287,16 @@ fun ArtistsTab(
                     itemCount = artists.size,
                     sortBy = sortBy,
                     sortDirection = sortDirection,
-                    onSortByChanged = { viewModel.sortBy.value = it },
+                    onSortByChanged = { viewModel.setTabSort("artists", newSortBy = it) },
                     onToggleDirection = {
-                        viewModel.sortDirection.value =
-                            if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING
+                        viewModel.setTabSort(
+                            "artists",
+                            newSortDir = if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING
                             else SortDirection.ASCENDING
+                        )
                     },
                     layoutMode = layoutMode,
-                    onLayoutModeChanged = { viewModel.artistsLayoutMode.value = it },
+                    onLayoutModeChanged = { viewModel.setLayoutMode("artists", it) },
                     accentColor = dynamicAccent
                 )
 

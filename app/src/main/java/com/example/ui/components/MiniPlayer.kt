@@ -69,20 +69,27 @@ fun MiniPlayer(
     Column(
         modifier = modifier.fillMaxWidth()
     ) {
+        // Upward ambient shadow gradient casting onto background content
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(16.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.55f)
+                        )
+                    )
+                )
+        )
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
                 .clip(RoundedCornerShape(16.dp))
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color(0xAA121214),
-                            Color(0xFF18181A)
-                        )
-                    )
-                )
+                .background(Color(0xFF141416))
             .pointerInput(currentSong?.id) {
                 detectTapGestures(
                     onTap = {

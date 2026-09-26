@@ -77,8 +77,8 @@ fun SongsTab(
     val songs by viewModel.sortedSongs.collectAsState()
     val currentSong by viewModel.currentSong.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
-    val sortBy by viewModel.sortBy.collectAsState()
-    val sortDirection by viewModel.sortDirection.collectAsState()
+    val sortBy by viewModel.songsSortBy.collectAsState()
+    val sortDirection by viewModel.songsSortDirection.collectAsState()
     val isScanning by viewModel.isScanning.collectAsState()
     val dynamicAccent by viewModel.dynamicAccentColor.collectAsState()
     val layoutMode by viewModel.songsLayoutMode.collectAsState()
@@ -232,14 +232,16 @@ fun SongsTab(
                 itemCount = songs.size,
                 sortBy = sortBy,
                 sortDirection = sortDirection,
-                onSortByChanged = { viewModel.sortBy.value = it },
+                onSortByChanged = { viewModel.setTabSort("songs", newSortBy = it) },
                 onToggleDirection = {
-                    viewModel.sortDirection.value =
-                        if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING
+                    viewModel.setTabSort(
+                        "songs",
+                        newSortDir = if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING
                         else SortDirection.ASCENDING
+                    )
                 },
                 layoutMode = layoutMode,
-                onLayoutModeChanged = { viewModel.songsLayoutMode.value = it },
+                onLayoutModeChanged = { viewModel.setLayoutMode("songs", it) },
                 accentColor = dynamicAccent
             )
 

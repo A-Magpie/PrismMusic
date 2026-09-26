@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -148,116 +149,78 @@ fun SearchTab(
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        reverseLayout = true,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(top = 16.dp, bottom = 4.dp)
                     ) {
-                        // Section 3 (Top): Albums (if any)
-                        if (matchingAlbums.isNotEmpty()) {
-                            item {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 8.dp, bottom = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "Albums (${matchingAlbums.size})",
-                                        color = dynamicAccent,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            val visibleAlbums = if (showAllAlbums) matchingAlbums else matchingAlbums.take(3)
-                            items(visibleAlbums, key = { it.name }) { album ->
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .glassmorphic(shape = RoundedCornerShape(12.dp), backgroundColor = DarkCardGlass)
-                                        .clickable {
-                                            if (album.tracks.isNotEmpty()) {
-                                                viewModel.playSong(album.tracks.first(), album.tracks)
-                                            }
-                                        }
-                                        .padding(10.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        SquareCoverArt(
-                                            albumArtUri = album.artUri,
-                                            contentDescription = album.name,
-                                            shape = RoundedCornerShape(8.dp),
-                                            modifier = Modifier.size(44.dp)
-                                        )
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = album.name,
-                                                color = TextWhite,
-                                                fontSize = 15.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = "${album.artist} • ${album.tracks.size} tracks",
-                                                color = TextSecondary,
-                                                fontSize = 12.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                            contentDescription = null,
-                                            tint = TextMuted
-                                        )
-                                    }
-                                }
-                            }
-
-                            if (matchingAlbums.size > 3) {
+                        // Section 1 (Bottom, closest to search bar): Songs
+                        if (matchingSongs.isNotEmpty()) {
+                            // "See More Songs" button (renders above the songs in reverseLayout)
+                            if (matchingSongs.size > 5) {
                                 item {
                                     OutlinedButton(
-                                        onClick = { showAllAlbums = !showAllAlbums },
+                                        onClick = { showAllSongs = !showAllSongs },
                                         shape = RoundedCornerShape(10.dp),
                                         colors = ButtonDefaults.outlinedButtonColors(contentColor = dynamicAccent),
-                                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                                     ) {
                                         Icon(
-                                            imageVector = if (showAllAlbums) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                            imageVector = if (showAllSongs) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                                             contentDescription = null,
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = if (showAllAlbums) "Show Less Albums" else "More Albums (${matchingAlbums.size})",
+                                            text = if (showAllSongs) "Show Less Songs" else "See More Songs (${matchingSongs.size})",
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.SemiBold
                                         )
                                     }
                                 }
                             }
+
+                            val visibleSongs = if (showAllSongs) matchingSongs else matchingSongs.take(5)
+                            items(visibleSongs, key = { it.id }) { song ->
+                                SongItemCard(
+                                    song = song,
+                                    isPlaying = isPlaying,
+                                    isCurrent = (currentSong?.id == song.id),
+                                    onClick = { viewModel.playSong(song, matchingSongs) },
+                                    onPlayNext = { viewModel.playNextInQueue(song) },
+                                    onAddToQueue = { viewModel.addToQueueEnd(song) },
+                                    onAddToPlaylist = { songToAddToPlaylist = song },
+                                    onEditTags = { viewModel.songForTagEditor.value = song },
+                                    onToggleFavorite = { viewModel.toggleFavorite(song) },
+                                    onDelete = { viewModel.deleteSong(song) },
+                                    accentColor = dynamicAccent,
+                                    isCompact = true
+                                )
+                            }
                         }
 
-                        // Section 2 (Middle): Artists (if any)
+                        // Section 2 (Above songs): Artists
                         if (matchingArtists.isNotEmpty()) {
-                            item {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 8.dp, bottom = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "Artists (${matchingArtists.size})",
-                                        color = dynamicAccent,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                            // "See More Artists" button (renders above artists in reverseLayout)
+                            if (matchingArtists.size > 3) {
+                                item {
+                                    OutlinedButton(
+                                        onClick = { showAllArtists = !showAllArtists },
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = dynamicAccent),
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (showAllArtists) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (showAllArtists) "Show Less Artists" else "See More Artists (${matchingArtists.size})",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
                                 }
                             }
 
@@ -317,86 +280,78 @@ fun SearchTab(
                                     }
                                 }
                             }
+                        }
 
-                            if (matchingArtists.size > 3) {
+                        // Section 3 (Top): Albums
+                        if (matchingAlbums.isNotEmpty()) {
+                            // "See More Albums" button (renders above albums in reverseLayout)
+                            if (matchingAlbums.size > 3) {
                                 item {
                                     OutlinedButton(
-                                        onClick = { showAllArtists = !showAllArtists },
+                                        onClick = { showAllAlbums = !showAllAlbums },
                                         shape = RoundedCornerShape(10.dp),
                                         colors = ButtonDefaults.outlinedButtonColors(contentColor = dynamicAccent),
-                                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                                     ) {
                                         Icon(
-                                            imageVector = if (showAllArtists) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                            imageVector = if (showAllAlbums) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                                             contentDescription = null,
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = if (showAllArtists) "Show Less Artists" else "More Artists (${matchingArtists.size})",
+                                            text = if (showAllAlbums) "Show Less Albums" else "See More Albums (${matchingAlbums.size})",
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.SemiBold
                                         )
                                     }
                                 }
                             }
-                        }
 
-                        // Section 1 (Bottom, closest to search bar): Songs
-                        if (matchingSongs.isNotEmpty()) {
-                            item {
-                                Row(
+                            val visibleAlbums = if (showAllAlbums) matchingAlbums else matchingAlbums.take(3)
+                            items(visibleAlbums, key = { it.name }) { album ->
+                                Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(top = 8.dp, bottom = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .glassmorphic(shape = RoundedCornerShape(12.dp), backgroundColor = DarkCardGlass)
+                                        .clickable {
+                                            if (album.tracks.isNotEmpty()) {
+                                                viewModel.playSong(album.tracks.first(), album.tracks)
+                                            }
+                                        }
+                                        .padding(10.dp)
                                 ) {
-                                    Text(
-                                        text = "Songs (${matchingSongs.size})",
-                                        color = dynamicAccent,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            val visibleSongs = if (showAllSongs) matchingSongs else matchingSongs.take(5)
-                            items(visibleSongs, key = { it.id }) { song ->
-                                SongItemCard(
-                                    song = song,
-                                    isPlaying = isPlaying,
-                                    isCurrent = (currentSong?.id == song.id),
-                                    onClick = { viewModel.playSong(song, matchingSongs) },
-                                    onPlayNext = { viewModel.playNextInQueue(song) },
-                                    onAddToQueue = { viewModel.addToQueueEnd(song) },
-                                    onAddToPlaylist = { songToAddToPlaylist = song },
-                                    onEditTags = { viewModel.songForTagEditor.value = song },
-                                    onToggleFavorite = { viewModel.toggleFavorite(song) },
-                                    onDelete = { viewModel.deleteSong(song) },
-                                    accentColor = dynamicAccent,
-                                    isCompact = true
-                                )
-                            }
-
-                            if (matchingSongs.size > 5) {
-                                item {
-                                    OutlinedButton(
-                                        onClick = { showAllSongs = !showAllSongs },
-                                        shape = RoundedCornerShape(10.dp),
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = dynamicAccent),
-                                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = if (showAllSongs) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp)
+                                        SquareCoverArt(
+                                            albumArtUri = album.artUri,
+                                            contentDescription = album.name,
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.size(44.dp)
                                         )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = if (showAllSongs) "Show Less Songs" else "More Songs (${matchingSongs.size})",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = album.name,
+                                                color = TextWhite,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = "${album.artist} • ${album.tracks.size} tracks",
+                                                color = TextSecondary,
+                                                fontSize = 12.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                            contentDescription = null,
+                                            tint = TextMuted
                                         )
                                     }
                                 }

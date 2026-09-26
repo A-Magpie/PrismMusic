@@ -1,47 +1,231 @@
 package com.example.data.scanner
 
+import android.content.Context
+import android.net.Uri
 import android.util.Log
 import java.io.File
-import java.io.FileInputStream
-import java.io.RandomAccessFile
+import java.io.InputStream
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 
 object LyricsExtractor {
     private const val TAG = "LyricsExtractor"
 
+    fun extractLyrics(context: Context?, filePath: String?, uriString: String?): String {
+        // 1. First priority: Check adjacent .lrc / .txt files if a local file path exists
+        if (!filePath.isNullOrBlank()) {
+            try {
+                val file = File(filePath)
+                val lrc = findAdjacentLrc(file)
+                if (lrc.isNotBlank()) return lrc
+
+                val txt = findAdjacentTxt(file)
+                if (txt.isNotBlank()) return txt
+            } catch (e: Exception) {
+                Log.d(TAG, "Adjacent file check failed: ${e.message}")
+            }
+        }
+
+        // 2. Second priority: Direct binary stream parsing (ID3v2 USLT/SYLT, Vorbis, MP4 atom)
+        val streamLyrics = extractFromStream(context, filePath, uriString)
+        if (streamLyrics.isNotBlank()) {
+            return streamLyrics
+        }
+
+        return ""
+    }
+
+    // Backwards-compatible overload
     fun extractLyrics(filePath: String): String {
-        if (filePath.isBlank()) return ""
-        val file = File(filePath)
-        if (!file.exists() || !file.canRead() || file.length() < 128) return ""
+        return extractLyrics(null, filePath, null)
+    }
 
-        try {
-            // 1. Check adjacent .lrc file first (highest fidelity synchronized lyrics)
-            val lrcLyrics = findAdjacentLrc(file)
-            if (lrcLyrics.isNotBlank()) return lrcLyrics
-
-            val ext = file.extension.lowercase()
-            when (ext) {
-                "mp3" -> {
-                    val id3Lyrics = extractId3Lyrics(file)
-                    if (id3Lyrics.isNotBlank()) return id3Lyrics
-                }
-                "flac", "ogg", "opus" -> {
-                    val vorbisLyrics = extractVorbisLyrics(file)
-                    if (vorbisLyrics.isNotBlank()) return vorbisLyrics
-                }
-                "m4a", "mp4", "aac" -> {
-                    val m4aLyrics = extractMp4Lyrics(file)
-                    if (m4aLyrics.isNotBlank()) return m4aLyrics
+    /**
+     * Opens an InputStream (via ContentResolver or direct file) and inspects ID3v2 / Vorbis / MP4 tags.
+     */
+    private fun extractFromStream(context: Context?, filePath: String?, uriString: String?): String {
+        fun openStream(): InputStream? {
+            if (context != null && !uriString.isNullOrBlank()) {
+                try {
+                    val stream = context.contentResolver.openInputStream(Uri.parse(uriString))
+                    if (stream != null) return stream
+                } catch (_: Exception) {}
+            }
+            if (!filePath.isNullOrBlank()) {
+                val file = File(filePath)
+                if (file.exists() && file.canRead()) {
+                    try {
+                        return file.inputStream()
+                    } catch (_: Exception) {}
                 }
             }
+            return null
+        }
 
-            // Fallback: Check adjacent .txt file with matching name
-            val txtLyrics = findAdjacentTxt(file)
-            if (txtLyrics.isNotBlank()) return txtLyrics
+        try {
+            // Check ID3v2 tag (MP3)
+            openStream()?.use { input ->
+                val id3Lyrics = parseId3Stream(input)
+                if (id3Lyrics.isNotBlank()) return id3Lyrics
+            }
 
+            // Check Vorbis comments (FLAC / OGG / OPUS)
+            openStream()?.use { input ->
+                val vorbisLyrics = parseVorbisStream(input)
+                if (vorbisLyrics.isNotBlank()) return vorbisLyrics
+            }
+
+            // Check MP4 / M4A ©lyr atom
+            openStream()?.use { input ->
+                val mp4Lyrics = parseMp4Stream(input)
+                if (mp4Lyrics.isNotBlank()) return mp4Lyrics
+            }
         } catch (e: Exception) {
-            Log.d(TAG, "Failed extracting lyrics from $filePath: ${e.message}")
+            Log.d(TAG, "Stream extraction error: ${e.message}")
+        }
+        return ""
+    }
+
+    private fun parseId3Stream(input: InputStream): String {
+        val header = ByteArray(10)
+        var readTotal = 0
+        while (readTotal < 10) {
+            val r = input.read(header, readTotal, 10 - readTotal)
+            if (r <= 0) return ""
+            readTotal += r
+        }
+
+        if (header[0] != 'I'.code.toByte() || header[1] != 'D'.code.toByte() || header[2] != '3'.code.toByte()) {
+            return ""
+        }
+
+        val versionMajor = header[3].toInt() // 2, 3, or 4
+        val tagSize = decodeSyncSafe(header, 6)
+        if (tagSize <= 0 || tagSize > 12 * 1024 * 1024) return ""
+
+        val tagBytes = ByteArray(tagSize)
+        var offset = 0
+        while (offset < tagSize) {
+            val r = input.read(tagBytes, offset, tagSize - offset)
+            if (r <= 0) break
+            offset += r
+        }
+
+        var pos = 0
+        while (pos + 10 < tagBytes.size) {
+            val frameId: String
+            val frameSize: Int
+
+            if (versionMajor == 2) {
+                frameId = String(tagBytes, pos, 3, StandardCharsets.US_ASCII)
+                frameSize = (tagBytes[pos + 3].toInt() and 0xFF shl 16) or
+                        (tagBytes[pos + 4].toInt() and 0xFF shl 8) or
+                        (tagBytes[pos + 5].toInt() and 0xFF)
+                pos += 6
+            } else {
+                frameId = String(tagBytes, pos, 4, StandardCharsets.US_ASCII)
+                frameSize = if (versionMajor == 4) {
+                    decodeSyncSafe(tagBytes, pos + 4)
+                } else {
+                    decodeInt32(tagBytes, pos + 4)
+                }
+                pos += 10
+            }
+
+            if (frameSize <= 0 || pos + frameSize > tagBytes.size) break
+
+            if (frameId == "USLT" || frameId == "ULT" || frameId == "SYLT") {
+                val framePayload = tagBytes.copyOfRange(pos, pos + frameSize)
+                val lyrics = parseUsltPayload(framePayload)
+                if (lyrics.isNotBlank()) return lyrics
+            }
+
+            pos += frameSize
+        }
+        return ""
+    }
+
+    private fun parseUsltPayload(payload: ByteArray): String {
+        if (payload.size < 5) return ""
+        val encodingByte = payload[0].toInt()
+        val charset: Charset = when (encodingByte) {
+            1 -> StandardCharsets.UTF_16
+            2 -> StandardCharsets.UTF_16BE
+            3 -> StandardCharsets.UTF_8
+            else -> StandardCharsets.ISO_8859_1
+        }
+
+        var idx = 4 // skip 1 byte encoding + 3 bytes language
+        if (encodingByte == 1 || encodingByte == 2) {
+            // Skip 2-byte null terminator for description
+            while (idx + 1 < payload.size) {
+                if (payload[idx] == 0.toByte() && payload[idx + 1] == 0.toByte()) {
+                    idx += 2
+                    break
+                }
+                idx += 2
+            }
+        } else {
+            // Skip 1-byte null terminator
+            while (idx < payload.size) {
+                if (payload[idx] == 0.toByte()) {
+                    idx += 1
+                    break
+                }
+                idx++
+            }
+        }
+
+        if (idx >= payload.size) return ""
+        val lyricsBytes = payload.copyOfRange(idx, payload.size)
+        return String(lyricsBytes, charset).trim()
+    }
+
+    private fun parseVorbisStream(input: InputStream): String {
+        val buffer = ByteArray(65536)
+        val read = input.read(buffer)
+        if (read <= 0) return ""
+        val content = String(buffer, 0, read, StandardCharsets.ISO_8859_1)
+        val markers = listOf("LYRICS=", "unsyncedlyrics=", "Lyrics=", "UNSYNCEDLYRICS=")
+        for (marker in markers) {
+            val pos = content.indexOf(marker, ignoreCase = true)
+            if (pos >= 0) {
+                val start = pos + marker.length
+                val end = content.indexOf("\u0000", start).takeIf { it > 0 } ?: (start + 2500).coerceAtMost(read)
+                val raw = buffer.copyOfRange(start, end)
+                val lyrics = String(raw, StandardCharsets.UTF_8).trim()
+                if (lyrics.length > 5) return lyrics
+            }
+        }
+        return ""
+    }
+
+    private fun parseMp4Stream(input: InputStream): String {
+        val buffer = ByteArray(256 * 1024)
+        val read = input.read(buffer)
+        if (read <= 16) return ""
+        val pattern = byteArrayOf(0xA9.toByte(), 'l'.code.toByte(), 'y'.code.toByte(), 'r'.code.toByte())
+        for (i in 0 until read - pattern.size - 16) {
+            if (buffer[i] == pattern[0] && buffer[i + 1] == pattern[1] &&
+                buffer[i + 2] == pattern[2] && buffer[i + 3] == pattern[3]
+            ) {
+                var dataOffset = i + 4
+                while (dataOffset + 8 < read) {
+                    if (buffer[dataOffset + 4] == 'd'.code.toByte() &&
+                        buffer[dataOffset + 5] == 'a'.code.toByte() &&
+                        buffer[dataOffset + 6] == 't'.code.toByte() &&
+                        buffer[dataOffset + 7] == 'a'.code.toByte()
+                    ) {
+                        val dataSize = decodeInt32(buffer, dataOffset)
+                        val textStart = dataOffset + 16
+                        val textLength = (dataSize - 16).coerceAtMost(read - textStart)
+                        if (textLength > 0) {
+                            return String(buffer, textStart, textLength, StandardCharsets.UTF_8).trim()
+                        }
+                    }
+                    dataOffset++
+                }
+            }
         }
         return ""
     }
@@ -71,157 +255,6 @@ object LyricsExtractor {
             val text = txtFile.readText(StandardCharsets.UTF_8).trim()
             if (text.isNotBlank() && (text.contains("\n") || text.contains("["))) {
                 return text
-            }
-        }
-        return ""
-    }
-
-    /**
-     * Parses ID3v2 USLT (Unsynchronized lyrics) and SYLT frames from MP3 files.
-     */
-    private fun extractId3Lyrics(file: File): String {
-        RandomAccessFile(file, "r").use { raf ->
-            val header = ByteArray(10)
-            raf.readFully(header)
-            if (header[0] != 'I'.code.toByte() || header[1] != 'D'.code.toByte() || header[2] != '3'.code.toByte()) {
-                return ""
-            }
-
-            val versionMajor = header[3].toInt() // 2, 3, or 4
-            val tagSize = decodeSyncSafe(header, 6)
-            if (tagSize <= 0 || tagSize > 15 * 1024 * 1024) return ""
-
-            val tagBytes = ByteArray(tagSize)
-            raf.readFully(tagBytes)
-
-            var offset = 0
-            while (offset + 10 < tagBytes.size) {
-                val frameId: String
-                val frameSize: Int
-
-                if (versionMajor == 2) {
-                    frameId = String(tagBytes, offset, 3, StandardCharsets.US_ASCII)
-                    frameSize = (tagBytes[offset + 3].toInt() and 0xFF shl 16) or
-                            (tagBytes[offset + 4].toInt() and 0xFF shl 8) or
-                            (tagBytes[offset + 5].toInt() and 0xFF)
-                    offset += 6
-                } else {
-                    frameId = String(tagBytes, offset, 4, StandardCharsets.US_ASCII)
-                    frameSize = if (versionMajor == 4) {
-                        decodeSyncSafe(tagBytes, offset + 4)
-                    } else {
-                        decodeInt32(tagBytes, offset + 4)
-                    }
-                    offset += 10
-                }
-
-                if (frameSize <= 0 || offset + frameSize > tagBytes.size) break
-
-                if (frameId == "USLT" || frameId == "ULT" || frameId == "SYLT") {
-                    val framePayload = tagBytes.copyOfRange(offset, offset + frameSize)
-                    val lyrics = parseUsltPayload(framePayload)
-                    if (lyrics.isNotBlank()) return lyrics
-                }
-
-                offset += frameSize
-            }
-        }
-        return ""
-    }
-
-    private fun parseUsltPayload(payload: ByteArray): String {
-        if (payload.size < 5) return ""
-        val encodingByte = payload[0].toInt()
-        val charset: Charset = when (encodingByte) {
-            1 -> StandardCharsets.UTF_16
-            2 -> StandardCharsets.UTF_16BE
-            3 -> StandardCharsets.UTF_8
-            else -> StandardCharsets.ISO_8859_1
-        }
-
-        // Skip 1 byte encoding + 3 bytes language
-        var idx = 4
-        // Find end of content description (null-terminated according to encoding)
-        if (encodingByte == 1 || encodingByte == 2) {
-            // 2-byte null terminator (0x00, 0x00)
-            while (idx + 1 < payload.size) {
-                if (payload[idx] == 0.toByte() && payload[idx + 1] == 0.toByte()) {
-                    idx += 2
-                    break
-                }
-                idx += 2
-            }
-        } else {
-            // 1-byte null terminator (0x00)
-            while (idx < payload.size) {
-                if (payload[idx] == 0.toByte()) {
-                    idx += 1
-                    break
-                }
-                idx++
-            }
-        }
-
-        if (idx >= payload.size) return ""
-        val lyricsBytes = payload.copyOfRange(idx, payload.size)
-        return String(lyricsBytes, charset).trim()
-    }
-
-    /**
-     * Extracts Vorbis comments (e.g. LYRICS= or UNSYNCEDLYRICS=) in FLAC/OGG files.
-     */
-    private fun extractVorbisLyrics(file: File): String {
-        FileInputStream(file).use { fis ->
-            val buffer = ByteArray(65536.coerceAtMost(file.length().toInt()))
-            val read = fis.read(buffer)
-            if (read <= 0) return ""
-            val content = String(buffer, 0, read, StandardCharsets.ISO_8859_1)
-            val markers = listOf("LYRICS=", "unsyncedlyrics=", "Lyrics=", "UNSYNCEDLYRICS=")
-            for (marker in markers) {
-                val pos = content.indexOf(marker, ignoreCase = true)
-                if (pos >= 0) {
-                    val start = pos + marker.length
-                    val end = content.indexOf("\u0000", start).takeIf { it > 0 } ?: (start + 2000).coerceAtMost(read)
-                    val raw = buffer.copyOfRange(start, end)
-                    val lyrics = String(raw, StandardCharsets.UTF_8).trim()
-                    if (lyrics.length > 5) return lyrics
-                }
-            }
-        }
-        return ""
-    }
-
-    /**
-     * Extracts ©lyr atom in MP4/M4A containers.
-     */
-    private fun extractMp4Lyrics(file: File): String {
-        RandomAccessFile(file, "r").use { raf ->
-            val scanLength = 256 * 1024L.coerceAtMost(file.length())
-            val buffer = ByteArray(scanLength.toInt())
-            raf.readFully(buffer)
-            val pattern = byteArrayOf(0xA9.toByte(), 'l'.code.toByte(), 'y'.code.toByte(), 'r'.code.toByte())
-            for (i in 0 until buffer.size - pattern.size - 16) {
-                if (buffer[i] == pattern[0] && buffer[i + 1] == pattern[1] &&
-                    buffer[i + 2] == pattern[2] && buffer[i + 3] == pattern[3]
-                ) {
-                    // Atom structure: [4 byte size][©lyr][4 byte size][data][flags][reserved][payload]
-                    var dataOffset = i + 4
-                    while (dataOffset + 8 < buffer.size) {
-                        if (buffer[dataOffset + 4] == 'd'.code.toByte() &&
-                            buffer[dataOffset + 5] == 'a'.code.toByte() &&
-                            buffer[dataOffset + 6] == 't'.code.toByte() &&
-                            buffer[dataOffset + 7] == 'a'.code.toByte()
-                        ) {
-                            val dataSize = decodeInt32(buffer, dataOffset)
-                            val textStart = dataOffset + 16
-                            val textLength = (dataSize - 16).coerceAtMost(buffer.size - textStart)
-                            if (textLength > 0) {
-                                return String(buffer, textStart, textLength, StandardCharsets.UTF_8).trim()
-                            }
-                        }
-                        dataOffset++
-                    }
-                }
             }
         }
         return ""

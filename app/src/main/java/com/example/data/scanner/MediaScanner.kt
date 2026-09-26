@@ -149,7 +149,7 @@ object MediaScanner {
                             albumId = albumId,
                             albumArtUri = albumArtUri,
                             folderPath = folderPath,
-                            lyrics = extractEmbeddedLyrics(path)
+                            lyrics = extractEmbeddedLyrics(context, path, contentUri)
                         )
                     )
                 }
@@ -189,7 +189,7 @@ object MediaScanner {
                                         albumId = 0L,
                                         albumArtUri = null,
                                         folderPath = parentDir,
-                                        lyrics = extractEmbeddedLyrics(fPath)
+                                        lyrics = extractEmbeddedLyrics(context, fPath, Uri.fromFile(file).toString())
                                     )
                                 )
                             }
@@ -240,8 +240,8 @@ object MediaScanner {
         )
     }
 
-    private fun extractEmbeddedLyrics(filePath: String): String {
-        return LyricsExtractor.extractLyrics(filePath)
+    private fun extractEmbeddedLyrics(context: Context, filePath: String, uriString: String? = null): String {
+        return LyricsExtractor.extractLyrics(context, filePath, uriString)
     }
 
     private fun ensureDemoTracks(context: Context): List<Song> {

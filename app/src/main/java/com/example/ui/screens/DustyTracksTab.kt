@@ -68,8 +68,8 @@ fun DustyTracksTab(
     val dustyTracks by viewModel.dustyTracks.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
     val currentSong by viewModel.currentSong.collectAsState()
-    val sortBy by viewModel.sortBy.collectAsState()
-    val sortDirection by viewModel.sortDirection.collectAsState()
+    val sortBy by viewModel.dustySortBy.collectAsState()
+    val sortDirection by viewModel.dustySortDirection.collectAsState()
     val layoutMode by viewModel.dustyLayoutMode.collectAsState()
     val dynamicAccent by viewModel.dynamicAccentColor.collectAsState()
 
@@ -156,14 +156,13 @@ fun DustyTracksTab(
                 itemCount = sortedDustyTracks.size,
                 sortBy = sortBy,
                 sortDirection = sortDirection,
-                onSortByChanged = { viewModel.sortBy.value = it },
+                onSortByChanged = { viewModel.setTabSort("dusty", newSortBy = it) },
                 onToggleDirection = {
-                    viewModel.sortDirection.value =
-                        if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING
-                        else SortDirection.ASCENDING
+                    val newDir = if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING else SortDirection.ASCENDING
+                    viewModel.setTabSort("dusty", newSortDir = newDir)
                 },
                 layoutMode = layoutMode,
-                onLayoutModeChanged = { viewModel.dustyLayoutMode.value = it },
+                onLayoutModeChanged = { viewModel.setLayoutMode("dusty", it) },
                 accentColor = dynamicAccent
             )
 

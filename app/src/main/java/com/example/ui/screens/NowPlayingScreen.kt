@@ -153,6 +153,12 @@ fun NowPlayingScreen(
         }
     }
 
+    LaunchedEffect(currentSong?.id, showLyrics) {
+        if (showLyrics && currentSong != null && currentSong!!.lyrics.isBlank()) {
+            viewModel.loadLyricsForCurrentSong()
+        }
+    }
+
     var dragDirection by remember { mutableStateOf<String?>(null) }
     var totalDx by remember { mutableFloatStateOf(0f) }
     var totalDy by remember { mutableFloatStateOf(0f) }
@@ -391,7 +397,11 @@ fun NowPlayingScreen(
                             detectTapGestures(
                                 onDoubleTap = {
                                     // Double-tap cover art to display embedded lyrics
-                                    viewModel.showLyrics.value = !viewModel.showLyrics.value
+                                    val nextShow = !viewModel.showLyrics.value
+                                    viewModel.showLyrics.value = nextShow
+                                    if (nextShow && (currentSong?.lyrics.isNullOrBlank())) {
+                                        viewModel.loadLyricsForCurrentSong()
+                                    }
                                 }
                             )
                         }

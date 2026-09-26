@@ -28,15 +28,22 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Settings
@@ -155,6 +162,18 @@ fun MainApp(
 
     val isTabBarAtTop = (settings?.tabBarPosition == "TOP")
 
+    val density = LocalDensity.current
+    val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    var tabBarHeightPx by remember { mutableIntStateOf(0) }
+    val tabBarHeightDp = with(density) { tabBarHeightPx.toDp() }
+
+    val contentBottomPadding = if (isTabBarAtTop) {
+        maxOf(navBarBottom, imeBottom)
+    } else {
+        maxOf(tabBarHeightDp, imeBottom)
+    }
+
     val tabList by viewModel.visibleTabs.collectAsState()
     val dialogBlurRadius by viewModel.dialogBlurRadius.collectAsState()
     val pagerState = rememberPagerState(
@@ -238,7 +257,7 @@ fun MainApp(
                     .fillMaxSize()
                     .padding(
                         top = if (isTabBarAtTop) 0.dp else innerPadding.calculateTopPadding(),
-                        bottom = if (isTabBarAtTop) innerPadding.calculateBottomPadding() else 0.dp
+                        bottom = contentBottomPadding
                     )
                     .then(blurModifier)
             ) {
@@ -328,11 +347,20 @@ fun MainApp(
                     }
                 }
 
-                // Mini Player (above tabs when bottom placed, or at very bottom when top placed)
+                // Mini Player (above tabs when keyboard closed, or dynamically above keyboard when keyboard opens!)
                 MiniPlayer(viewModel = viewModel)
+            }
 
-                // If Tab Bar is configured at BOTTOM:
-                if (!isTabBarAtTop) {
+            // If Tab Bar is configured at BOTTOM: pinned to bottom of screen so keyboard covers it
+            if (!isTabBarAtTop) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .onGloballyPositioned { coordinates ->
+                            tabBarHeightPx = coordinates.size.height
+                        }
+                        .then(blurModifier)
+                ) {
                     TabBar(
                         selectedTab = selectedTab,
                         tabOrder = tabList,

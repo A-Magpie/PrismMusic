@@ -29,6 +29,7 @@ import com.example.data.repository.MusicRepository
 import com.example.data.scanner.ScanResult
 import com.example.playback.AudioPlaybackService
 import com.example.ui.theme.AccentCyan
+import com.example.ui.theme.AccentGray
 import com.example.widget.WidgetUpdateHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -103,14 +104,109 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     val isScanning = MutableStateFlow(false)
     val scanSummaryState = MutableStateFlow<ScanResult?>(null)
 
-    // Independent Layout Modes per Tab
-    val songsLayoutMode = MutableStateFlow(ViewLayoutMode.LIST_NORMAL)
-    val favoritesLayoutMode = MutableStateFlow(ViewLayoutMode.LIST_NORMAL)
-    val dustyLayoutMode = MutableStateFlow(ViewLayoutMode.LIST_NORMAL)
-    val foldersLayoutMode = MutableStateFlow(ViewLayoutMode.LIST_NORMAL)
-    val artistsLayoutMode = MutableStateFlow(ViewLayoutMode.LIST_NORMAL)
-    val playlistsLayoutMode = MutableStateFlow(ViewLayoutMode.GRID_3)
+    // SharedPreferences for persistent UI tab settings
+    private val tabPrefs = getApplication<Application>().getSharedPreferences("prism_music_tab_settings", Context.MODE_PRIVATE)
+
+    private fun loadTabSortBy(key: String, default: SortBy): SortBy {
+        val name = tabPrefs.getString("sort_$key", default.name) ?: default.name
+        return try { SortBy.valueOf(name) } catch (_: Exception) { default }
+    }
+
+    private fun loadTabSortDirection(key: String, default: SortDirection): SortDirection {
+        val name = tabPrefs.getString("dir_$key", default.name) ?: default.name
+        return try { SortDirection.valueOf(name) } catch (_: Exception) { default }
+    }
+
+    private fun saveTabSort(key: String, sort: SortBy, dir: SortDirection) {
+        tabPrefs.edit()
+            .putString("sort_$key", sort.name)
+            .putString("dir_$key", dir.name)
+            .apply()
+    }
+
+    private fun loadTabLayoutMode(key: String, default: ViewLayoutMode): ViewLayoutMode {
+        val name = tabPrefs.getString("layout_$key", default.name) ?: default.name
+        return try { ViewLayoutMode.valueOf(name) } catch (_: Exception) { default }
+    }
+
+    fun setLayoutMode(key: String, mode: ViewLayoutMode) {
+        tabPrefs.edit().putString("layout_$key", mode.name).apply()
+        when (key) {
+            "songs" -> songsLayoutMode.value = mode
+            "favorites" -> favoritesLayoutMode.value = mode
+            "dusty" -> dustyLayoutMode.value = mode
+            "folders" -> foldersLayoutMode.value = mode
+            "artists" -> artistsLayoutMode.value = mode
+            "playlists" -> playlistsLayoutMode.value = mode
+        }
+    }
+
+    // Independent Layout Modes per Tab (loaded from persistence)
+    val songsLayoutMode = MutableStateFlow(loadTabLayoutMode("songs", ViewLayoutMode.LIST_NORMAL))
+    val favoritesLayoutMode = MutableStateFlow(loadTabLayoutMode("favorites", ViewLayoutMode.LIST_NORMAL))
+    val dustyLayoutMode = MutableStateFlow(loadTabLayoutMode("dusty", ViewLayoutMode.LIST_NORMAL))
+    val foldersLayoutMode = MutableStateFlow(loadTabLayoutMode("folders", ViewLayoutMode.LIST_NORMAL))
+    val artistsLayoutMode = MutableStateFlow(loadTabLayoutMode("artists", ViewLayoutMode.LIST_NORMAL))
+    val playlistsLayoutMode = MutableStateFlow(loadTabLayoutMode("playlists", ViewLayoutMode.GRID_3))
     val songLayoutMode = songsLayoutMode // backwards compatibility
+
+    // Independent Sorting per Tab (loaded from persistence)
+    val songsSortBy = MutableStateFlow(loadTabSortBy("songs", SortBy.TITLE))
+    val songsSortDirection = MutableStateFlow(loadTabSortDirection("songs", SortDirection.ASCENDING))
+
+    val foldersSortBy = MutableStateFlow(loadTabSortBy("folders", SortBy.TITLE))
+    val foldersSortDirection = MutableStateFlow(loadTabSortDirection("folders", SortDirection.ASCENDING))
+
+    val artistsSortBy = MutableStateFlow(loadTabSortBy("artists", SortBy.TITLE))
+    val artistsSortDirection = MutableStateFlow(loadTabSortDirection("artists", SortDirection.ASCENDING))
+
+    val playlistsSortBy = MutableStateFlow(loadTabSortBy("playlists", SortBy.TITLE))
+    val playlistsSortDirection = MutableStateFlow(loadTabSortDirection("playlists", SortDirection.ASCENDING))
+
+    val favoritesSortBy = MutableStateFlow(loadTabSortBy("favorites", SortBy.TITLE))
+    val favoritesSortDirection = MutableStateFlow(loadTabSortDirection("favorites", SortDirection.ASCENDING))
+
+    val dustySortBy = MutableStateFlow(loadTabSortBy("dusty", SortBy.PLAY_COUNT))
+    val dustySortDirection = MutableStateFlow(loadTabSortDirection("dusty", SortDirection.ASCENDING))
+
+    // Fallback/Legacy Sort flows (synced with songs sort)
+    val sortBy = songsSortBy
+    val sortDirection = songsSortDirection
+
+    fun setTabSort(tabKey: String, newSortBy: SortBy? = null, newSortDir: SortDirection? = null) {
+        when (tabKey) {
+            "songs" -> {
+                if (newSortBy != null) songsSortBy.value = newSortBy
+                if (newSortDir != null) songsSortDirection.value = newSortDir
+                saveTabSort("songs", songsSortBy.value, songsSortDirection.value)
+            }
+            "folders" -> {
+                if (newSortBy != null) foldersSortBy.value = newSortBy
+                if (newSortDir != null) foldersSortDirection.value = newSortDir
+                saveTabSort("folders", foldersSortBy.value, foldersSortDirection.value)
+            }
+            "artists" -> {
+                if (newSortBy != null) artistsSortBy.value = newSortBy
+                if (newSortDir != null) artistsSortDirection.value = newSortDir
+                saveTabSort("artists", artistsSortBy.value, artistsSortDirection.value)
+            }
+            "playlists" -> {
+                if (newSortBy != null) playlistsSortBy.value = newSortBy
+                if (newSortDir != null) playlistsSortDirection.value = newSortDir
+                saveTabSort("playlists", playlistsSortBy.value, playlistsSortDirection.value)
+            }
+            "favorites" -> {
+                if (newSortBy != null) favoritesSortBy.value = newSortBy
+                if (newSortDir != null) favoritesSortDirection.value = newSortDir
+                saveTabSort("favorites", favoritesSortBy.value, favoritesSortDirection.value)
+            }
+            "dusty" -> {
+                if (newSortBy != null) dustySortBy.value = newSortBy
+                if (newSortDir != null) dustySortDirection.value = newSortDir
+                saveTabSort("dusty", dustySortBy.value, dustySortDirection.value)
+            }
+        }
+    }
 
     val defaultTabOrder = listOf(
         TabType.PLAYLISTS,
@@ -144,15 +240,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     // Search
     val searchQuery = MutableStateFlow("")
 
-    // Sorting
-    val sortBy = MutableStateFlow(SortBy.TITLE)
-    val sortDirection = MutableStateFlow(SortDirection.ASCENDING)
-
     // Player State flows
     private val _currentSong = MutableStateFlow<Song?>(null)
     val currentSong: StateFlow<Song?> = _currentSong.asStateFlow()
 
-    private val _dynamicAccentColor = MutableStateFlow<Color>(AccentCyan)
+    private val _dynamicAccentColor = MutableStateFlow<Color>(AccentGray)
     val dynamicAccentColor: StateFlow<Color> = _dynamicAccentColor.asStateFlow()
 
     private val _isPlaying = MutableStateFlow(false)
@@ -439,9 +531,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun checkAndLoadLyrics(song: Song) {
+    fun checkAndLoadLyrics(song: Song) {
         viewModelScope.launch(Dispatchers.IO) {
-            val extracted = com.example.data.scanner.LyricsExtractor.extractLyrics(song.path)
+            val extracted = com.example.data.scanner.LyricsExtractor.extractLyrics(getApplication(), song.path, song.uri)
             if (extracted.isNotBlank()) {
                 val updated = song.copy(lyrics = extracted)
                 repository.updateSong(updated)
@@ -450,6 +542,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    fun loadLyricsForCurrentSong() {
+        val song = _currentSong.value ?: return
+        checkAndLoadLyrics(song)
     }
 
     private fun observeService() {
@@ -518,21 +615,27 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val queueList = withContext(Dispatchers.IO) {
             if (!savedState?.queueSongIds.isNullOrBlank()) {
                 val ids = savedState.queueSongIds.split(",").mapNotNull { it.trim().toLongOrNull() }
-                val fetched = repository.getSongsByIds(ids)
-                if (fetched.isNotEmpty()) fetched else allTracks
+                val fetchedMap = repository.getSongsByIds(ids).associateBy { it.id }
+                val ordered = ids.mapNotNull { fetchedMap[it] }
+                if (ordered.isNotEmpty()) ordered else allTracks
             } else {
                 allTracks
             }
         }
 
         val startPos = savedState?.currentPosition ?: 0L
+        val targetIdx = if (savedState != null && savedState.currentQueueIndex in queueList.indices) {
+            savedState.currentQueueIndex
+        } else {
+            queueList.indexOfFirst { it.id == targetSong.id }.coerceAtLeast(0)
+        }
 
         // Prepare paused on Now Playing
-        service?.setQueue(queueList, queueList.indexOfFirst { it.id == targetSong.id }.coerceAtLeast(0), playImmediately = false)
+        service?.setQueue(queueList, targetIdx, playImmediately = false)
         service?.playerEngine?.seekTo(startPos)
-        _currentSong.value = targetSong
+        _currentSong.value = queueList.getOrNull(targetIdx) ?: targetSong
         _currentPosition.value = startPos
-        _duration.value = targetSong.duration
+        _duration.value = (_currentSong.value ?: targetSong).duration
         _queue.value = queueList
 
         // Restore EQ settings if saved
@@ -882,7 +985,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun extractColorFromAlbumArt(song: Song?) {
         if (song == null) {
-            _dynamicAccentColor.value = AccentCyan
+            _dynamicAccentColor.value = AccentGray
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -941,7 +1044,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 extractedColor = Color(rgb)
             }
 
-            _dynamicAccentColor.value = extractedColor ?: AccentCyan
+            _dynamicAccentColor.value = extractedColor ?: AccentGray
         }
     }
 
