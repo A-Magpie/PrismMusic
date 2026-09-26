@@ -116,7 +116,7 @@ fun QueueSheet(
     var draggingSongKey by remember { mutableStateOf<Long?>(null) }
     var draggingFromIndex by remember { mutableStateOf<Int?>(null) }
     var currentTargetIndex by remember { mutableStateOf<Int?>(null) }
-    var totalDragDistanceY by remember { mutableFloatStateOf(0f) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
 
     var nextKey by remember { mutableStateOf(0L) }
     val localQueue = remember { mutableStateListOf<QueueEntry>() }
@@ -139,45 +139,83 @@ fun QueueSheet(
         }
     }
 
-    // Edge auto-scroll during drag: smoothly scrolls list and recalculates target slot
+    // Precise swap detection based on visual center of dragged item
+    fun checkAndSwap(curIdx: Int) {
+        val visibleItems = listState.layoutInfo.visibleItemsInfo
+        val draggedItem = visibleItems.find { it.index == curIdx } ?: return
+        val draggedCenter = draggedItem.offset + (draggedItem.size / 2) + dragOffsetY
+
+        if (dragOffsetY > 0 && curIdx < localQueue.size - 1) {
+            val nextItem = visibleItems.find { it.index == curIdx + 1 }
+            if (nextItem != null) {
+                val nextCenter = nextItem.offset + (nextItem.size / 2)
+                if (draggedCenter > nextCenter) {
+                    val moved = localQueue.removeAt(curIdx)
+                    localQueue.add(curIdx + 1, moved)
+                    currentTargetIndex = curIdx + 1
+                    dragOffsetY -= (nextItem.offset - draggedItem.offset)
+                }
+            } else if (dragOffsetY > itemHeightPx * 0.6f) {
+                val moved = localQueue.removeAt(curIdx)
+                localQueue.add(curIdx + 1, moved)
+                currentTargetIndex = curIdx + 1
+                dragOffsetY -= itemHeightPx
+            }
+        } else if (dragOffsetY < 0 && curIdx > 0) {
+            val prevItem = visibleItems.find { it.index == curIdx - 1 }
+            if (prevItem != null) {
+                val prevCenter = prevItem.offset + (prevItem.size / 2)
+                if (draggedCenter < prevCenter) {
+                    val moved = localQueue.removeAt(curIdx)
+                    localQueue.add(curIdx - 1, moved)
+                    currentTargetIndex = curIdx - 1
+                    dragOffsetY += (draggedItem.offset - prevItem.offset)
+                }
+            } else if (dragOffsetY < -itemHeightPx * 0.6f) {
+                val moved = localQueue.removeAt(curIdx)
+                localQueue.add(curIdx - 1, moved)
+                currentTargetIndex = curIdx - 1
+                dragOffsetY += itemHeightPx
+            }
+        }
+    }
+
+    // Viewport-bounded edge auto-scroll during drag: stops at list boundaries and never runs away
     val currentIsDragging by rememberUpdatedState(isDraggingActive)
-    val currentDraggingFrom by rememberUpdatedState(draggingFromIndex)
     val currentTarget by rememberUpdatedState(currentTargetIndex)
+    val scrollThresholdPx = with(LocalDensity.current) { 70.dp.toPx() }
 
     LaunchedEffect(isDraggingActive) {
         if (!isDraggingActive) return@LaunchedEffect
         while (isActive && currentIsDragging) {
-            val fromIdx = currentDraggingFrom ?: break
-            val targetIdx = currentTarget ?: break
-            val firstVisible = listState.firstVisibleItemIndex
-            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val cur = currentTarget ?: break
+            val visible = listState.layoutInfo.visibleItemsInfo
+            val draggedItem = visible.find { it.index == cur }
+            val viewportStart = listState.layoutInfo.viewportStartOffset.toFloat()
+            val viewportEnd = listState.layoutInfo.viewportEndOffset.toFloat()
 
-            if (targetIdx <= firstVisible + 1 && targetIdx > 0) {
-                val scrollDelta = -14f
-                listState.scrollBy(scrollDelta)
-                totalDragDistanceY += scrollDelta
-                val slotDelta = (totalDragDistanceY / itemHeightPx).roundToInt()
-                val newTarget = (fromIdx + slotDelta).coerceIn(0, localQueue.size - 1)
-                val cur = currentTargetIndex ?: fromIdx
-                if (newTarget != cur && newTarget in localQueue.indices && cur in localQueue.indices) {
-                    val moved = localQueue.removeAt(cur)
-                    localQueue.add(newTarget, moved)
-                    currentTargetIndex = newTarget
+            if (draggedItem != null && viewportEnd > 0) {
+                val itemVisualTop = draggedItem.offset + dragOffsetY
+                val itemVisualBottom = itemVisualTop + draggedItem.size
+
+                // Near top edge: scroll up only if backwards scroll is possible
+                if (itemVisualTop < viewportStart + scrollThresholdPx && listState.canScrollBackward) {
+                    val factor = ((viewportStart + scrollThresholdPx - itemVisualTop) / scrollThresholdPx).coerceIn(0.2f, 1f)
+                    val delta = -(14f * factor)
+                    listState.scrollBy(delta)
+                    dragOffsetY += delta
+                    checkAndSwap(currentTargetIndex ?: cur)
                 }
-            } else if (targetIdx >= lastVisible - 1 && targetIdx < localQueue.size - 1) {
-                val scrollDelta = 14f
-                listState.scrollBy(scrollDelta)
-                totalDragDistanceY += scrollDelta
-                val slotDelta = (totalDragDistanceY / itemHeightPx).roundToInt()
-                val newTarget = (fromIdx + slotDelta).coerceIn(0, localQueue.size - 1)
-                val cur = currentTargetIndex ?: fromIdx
-                if (newTarget != cur && newTarget in localQueue.indices && cur in localQueue.indices) {
-                    val moved = localQueue.removeAt(cur)
-                    localQueue.add(newTarget, moved)
-                    currentTargetIndex = newTarget
+                // Near bottom edge: scroll down only if forward scroll is possible
+                else if (itemVisualBottom > viewportEnd - scrollThresholdPx && listState.canScrollForward) {
+                    val factor = ((itemVisualBottom - (viewportEnd - scrollThresholdPx)) / scrollThresholdPx).coerceIn(0.2f, 1f)
+                    val delta = 14f * factor
+                    listState.scrollBy(delta)
+                    dragOffsetY += delta
+                    checkAndSwap(currentTargetIndex ?: cur)
                 }
             }
-            delay(18)
+            delay(16)
         }
     }
 
@@ -362,9 +400,7 @@ fun QueueSheet(
                         ) { index, entry ->
                             val song = entry.song
                             val isBeingDragged = (draggingSongKey == entry.stableKey)
-                            val visualOffsetY = if (isBeingDragged && draggingFromIndex != null && currentTargetIndex != null) {
-                                totalDragDistanceY - (currentTargetIndex!! - draggingFromIndex!!) * itemHeightPx
-                            } else 0f
+                            val visualOffsetY = if (isBeingDragged) dragOffsetY else 0f
 
                             QueueItemRow(
                                 song = song,
@@ -373,6 +409,7 @@ fun QueueSheet(
                                 queueSize = localQueue.size,
                                 isPlaying = (currentSong?.id == song.id),
                                 isDragged = isBeingDragged,
+                                isDraggingAny = isDraggingActive,
                                 accentColor = dynamicAccent,
                                 dragOffsetY = visualOffsetY,
                                 onPlay = {
@@ -390,19 +427,12 @@ fun QueueSheet(
                                     draggingSongKey = entry.stableKey
                                     draggingFromIndex = index
                                     currentTargetIndex = index
-                                    totalDragDistanceY = 0f
+                                    dragOffsetY = 0f
                                 },
                                 onDrag = { deltaY ->
-                                    totalDragDistanceY += deltaY
-                                    val from = draggingFromIndex ?: return@QueueItemRow
-                                    val slotDelta = (totalDragDistanceY / itemHeightPx).roundToInt()
-                                    val target = (from + slotDelta).coerceIn(0, localQueue.size - 1)
-                                    val cur = currentTargetIndex ?: from
-                                    if (target != cur && target in localQueue.indices && cur in localQueue.indices) {
-                                        val moved = localQueue.removeAt(cur)
-                                        localQueue.add(target, moved)
-                                        currentTargetIndex = target
-                                    }
+                                    dragOffsetY += deltaY
+                                    val cur = currentTargetIndex ?: return@QueueItemRow
+                                    checkAndSwap(cur)
                                 },
                                 onDragEnd = {
                                     val from = draggingFromIndex
@@ -414,7 +444,7 @@ fun QueueSheet(
                                     draggingSongKey = null
                                     draggingFromIndex = null
                                     currentTargetIndex = null
-                                    totalDragDistanceY = 0f
+                                    dragOffsetY = 0f
                                 }
                             )
                         }
@@ -496,6 +526,7 @@ private fun QueueItemRow(
     queueSize: Int,
     isPlaying: Boolean,
     isDragged: Boolean,
+    isDraggingAny: Boolean,
     accentColor: Color,
     dragOffsetY: Float,
     onPlay: () -> Unit,
@@ -528,19 +559,21 @@ private fun QueueItemRow(
                 alpha = itemAlpha
                 shadowElevation = if (isDragged) 16.dp.toPx() else 0f
             }
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onHorizontalDrag = { change, dragAmount ->
-                        change.consume()
-                        swipeOffset = (swipeOffset + dragAmount).coerceAtMost(0f)
-                    },
-                    onDragEnd = {
-                        if (swipeOffset < -120f) {
-                            onRemove()
+            .pointerInput(isDraggingAny) {
+                if (!isDraggingAny) {
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            swipeOffset = (swipeOffset + dragAmount).coerceAtMost(0f)
+                        },
+                        onDragEnd = {
+                            if (swipeOffset < -120f) {
+                                onRemove()
+                            }
+                            swipeOffset = 0f
                         }
-                        swipeOffset = 0f
-                    }
-                )
+                    )
+                }
             }
             .glassmorphic(
                 shape = RoundedCornerShape(12.dp),
@@ -557,7 +590,6 @@ private fun QueueItemRow(
                     else -> GlassBorder.copy(alpha = 0.20f)
                 }
             )
-            .clickable { onPlay() }
             .padding(horizontal = 10.dp, vertical = 8.dp)
     ) {
         Row(
@@ -603,12 +635,17 @@ private fun QueueItemRow(
                 modifier = Modifier
                     .size(42.dp)
                     .then(if (isPlayed) Modifier.graphicsLayer { alpha = 0.50f } else Modifier)
+                    .clickable(enabled = !isDraggingAny) { onPlay() }
             )
 
             Spacer(modifier = Modifier.width(10.dp))
 
             // Song Info
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(enabled = !isDraggingAny) { onPlay() }
+            ) {
                 Text(
                     text = song.title,
                     color = when {

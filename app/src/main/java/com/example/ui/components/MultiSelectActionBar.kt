@@ -80,12 +80,9 @@ fun MultiSelectActionBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 8.dp)
-                .glassmorphic(
-                    shape = RoundedCornerShape(18.dp),
-                    backgroundColor = Color(0xF018181C),
-                    borderColor = accentColor.copy(alpha = 0.6f)
-                )
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF16161A))
+                .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
             // Header Row: Count, Select All, Close
             Row(
@@ -116,7 +113,7 @@ fun MultiSelectActionBar(
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             // Action Buttons Row: Play Now, Play Next, Add to Queue, Add to Playlist, Delete
             Row(
@@ -161,7 +158,7 @@ fun MultiSelectActionBar(
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            containerColor = DarkCardGlass,
+            containerColor = Color(0xFF1E1E24),
             shape = RoundedCornerShape(16.dp),
             title = { Text("Delete $selectedCount Track(s)?", color = TextWhite, fontWeight = FontWeight.Bold) },
             text = { Text("This will permanently remove the selected audio tracks from device storage and your library.", color = TextMuted, fontSize = 13.sp) },
@@ -195,28 +192,21 @@ private fun ActionButtonItem(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(10.dp))
             .clickable { onClick() }
-            .padding(horizontal = 6.dp, vertical = 4.dp)
+            .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .background(Color(0x22FFFFFF), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = tint,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-        Spacer(modifier = Modifier.height(2.dp))
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = tint,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = label,
-            color = if (tint == AccentRed) AccentRed else TextMuted,
-            fontSize = 10.sp,
+            color = if (tint == AccentRed) AccentRed else TextWhite,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Medium
         )
     }

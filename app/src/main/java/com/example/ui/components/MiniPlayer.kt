@@ -69,22 +69,6 @@ fun MiniPlayer(
     Column(
         modifier = modifier.fillMaxWidth()
     ) {
-        // Upward ambient color shadow gradient casting onto background content
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(20.dp)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            dynamicAccent.copy(alpha = 0.25f),
-                            Color(0x99000000)
-                        )
-                    )
-                )
-        )
-
         Box(
             modifier = Modifier
                 .fillMaxWidth()

@@ -274,21 +274,6 @@ fun NowPlayingScreen(
             }
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
-        // Top ambient color gradient from album art dynamic palette
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(200.dp)
-                .background(
-                    androidx.compose.ui.graphics.Brush.verticalGradient(
-                        listOf(
-                            dynamicAccent.copy(alpha = 0.32f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -772,29 +757,13 @@ private fun LyricsOverlay(
             .background(Color(0xEE080810))
             .padding(16.dp)
     ) {
-        // Top ambient color gradient
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp)
-                .align(Alignment.TopCenter)
-                .background(
-                    androidx.compose.ui.graphics.Brush.verticalGradient(
-                        listOf(
-                            accentColor.copy(alpha = 0.32f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-
         // Actions top-right: Edit Lyrics button and Font Size cycle button below it
         Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(end = 4.dp, top = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             // Edit Lyrics Button
             IconButton(
@@ -802,14 +771,12 @@ private fun LyricsOverlay(
                     editedLyricsText = lyrics
                     showEditLyricsDialog = true
                 },
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(Color(0x33FFFFFF), CircleShape)
+                modifier = Modifier.size(32.dp)
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Edit,
                     contentDescription = "Edit Lyrics",
-                    tint = TextWhite,
+                    tint = TextWhite.copy(alpha = 0.85f),
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -825,9 +792,7 @@ private fun LyricsOverlay(
                     }
                     onFontSizeChange(nextSize)
                 },
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(Color(0x33FFFFFF), CircleShape)
+                modifier = Modifier.size(32.dp)
             ) {
                 Text(
                     text = when (fontSizeSetting) {
@@ -839,7 +804,7 @@ private fun LyricsOverlay(
                     },
                     color = accentColor,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp
+                    fontSize = 13.sp
                 )
             }
         }
