@@ -55,6 +55,8 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.Favorite
@@ -74,6 +76,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -89,17 +93,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import com.example.ui.components.SquareCoverArt
@@ -393,25 +402,26 @@ fun NowPlayingScreen(
                         .aspectRatio(1f)
                         .offset { IntOffset(dragOffsetX.value.roundToInt(), 0) }
                         .clip(RoundedCornerShape(18.dp))
-                        .pointerInput(currentSong?.id) {
-                            detectTapGestures(
-                                onDoubleTap = {
-                                    // Double-tap cover art to display embedded lyrics
-                                    val nextShow = !viewModel.showLyrics.value
-                                    viewModel.showLyrics.value = nextShow
-                                    if (nextShow && (currentSong?.lyrics.isNullOrBlank())) {
-                                        viewModel.loadLyricsForCurrentSong()
-                                    }
-                                }
-                            )
-                        }
                 ) {
                     SquareCoverArt(
                         albumArtUri = currentSong?.albumArtUri,
                         contentDescription = currentSong?.title ?: "Cover Art",
                         showBorder = false,
                         shape = RoundedCornerShape(18.dp),
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(currentSong?.id, showLyrics) {
+                                if (!showLyrics) {
+                                    detectTapGestures(
+                                        onDoubleTap = {
+                                            viewModel.showLyrics.value = true
+                                            if (currentSong?.lyrics.isNullOrBlank()) {
+                                                viewModel.loadLyricsForCurrentSong()
+                                            }
+                                        }
+                                    )
+                                }
+                            }
                     )
 
                     // Embedded Lyrics Overlay (Center-aligned over cover, double-tap toggles)
@@ -740,8 +750,10 @@ private fun LyricsOverlay(
     onSaveLyrics: (String) -> Unit,
     onClose: () -> Unit
 ) {
-    var showEditLyricsDialog by remember { mutableStateOf(false) }
-    var editedLyricsText by remember(lyrics) { mutableStateOf(lyrics) }
+    var isEditing by remember { mutableStateOf(false) }
+    var editedLyricsText by remember(lyrics, isEditing) { mutableStateOf(lyrics) }
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     val baseFontSize = when (fontSizeSetting) {
         "SMALL" -> 14.sp
@@ -750,196 +762,273 @@ private fun LyricsOverlay(
         else -> 17.sp // MEDIUM
     }
 
+    LaunchedEffect(isEditing) {
+        if (isEditing) {
+            try {
+                focusRequester.requestFocus()
+                keyboardController?.show()
+            } catch (_: Exception) {}
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(Color(0xEE080810))
-            .padding(16.dp)
+            .padding(14.dp)
     ) {
-        // Actions top-right: Edit Lyrics button and Font Size cycle button below it
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(end = 4.dp, top = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            // Edit Lyrics Button
-            IconButton(
-                onClick = {
-                    editedLyricsText = lyrics
-                    showEditLyricsDialog = true
-                },
-                modifier = Modifier.size(32.dp)
+        // 1. Content Area: Either in-place editable text area or lyrics viewer
+        if (isEditing) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 40.dp, bottom = 4.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Edit,
-                    contentDescription = "Edit Lyrics",
-                    tint = TextWhite.copy(alpha = 0.85f),
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-
-            // Font Size Cycle Button
-            IconButton(
-                onClick = {
-                    val nextSize = when (fontSizeSetting) {
-                        "SMALL" -> "MEDIUM"
-                        "MEDIUM" -> "LARGE"
-                        "LARGE" -> "EXTRA_LARGE"
-                        else -> "SMALL"
-                    }
-                    onFontSizeChange(nextSize)
-                },
-                modifier = Modifier.size(32.dp)
-            ) {
-                Text(
-                    text = when (fontSizeSetting) {
-                        "SMALL" -> "S"
-                        "MEDIUM" -> "M"
-                        "LARGE" -> "L"
-                        "EXTRA_LARGE" -> "XL"
-                        else -> "M"
-                    },
-                    color = accentColor,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp
-                )
-            }
-        }
-
-        // Edit Lyrics Dialog
-        if (showEditLyricsDialog) {
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { showEditLyricsDialog = false },
-                containerColor = DarkCardGlass,
-                shape = RoundedCornerShape(16.dp),
-                title = {
-                    Text(
-                        text = "Edit Lyrics",
-                        color = TextWhite,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                },
-                text = {
-                    Column(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = editedLyricsText,
+                    onValueChange = { editedLyricsText = it },
+                    placeholder = {
                         Text(
-                            text = "Edit or paste lyrics below (supports plain text or [mm:ss.xx] timestamps):",
+                            text = "Type or paste lyrics here...",
                             color = TextMuted,
-                            fontSize = 12.sp
+                            fontSize = 14.sp
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        androidx.compose.material3.OutlinedTextField(
-                            value = editedLyricsText,
-                            onValueChange = { editedLyricsText = it },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(260.dp),
-                            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = TextWhite,
-                                unfocusedTextColor = TextWhite,
-                                focusedBorderColor = accentColor,
-                                unfocusedBorderColor = GlassBorder
-                            )
-                        )
-                    }
-                },
-                confirmButton = {
-                    androidx.compose.material3.Button(
-                        onClick = {
-                            onSaveLyrics(editedLyricsText.trim())
-                            showEditLyricsDialog = false
-                        },
-                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = accentColor)
-                    ) {
-                        Text("Save", color = Color.Black, fontWeight = FontWeight.Bold)
-                    }
-                },
-                dismissButton = {
-                    androidx.compose.material3.TextButton(onClick = { showEditLyricsDialog = false }) {
-                        Text("Cancel", color = TextMuted)
-                    }
-                }
-            )
-        }
-
-        // Lyrics Text Content (Synced or Static, center-aligned over cover)
-        val scrollState = rememberScrollState()
-
-        if (lyrics.isBlank()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = "No embedded lyrics available.\nDouble-tap to dismiss.",
-                    color = TextMuted,
-                    fontSize = baseFontSize,
-                    textAlign = TextAlign.Center
+                    },
+                    textStyle = TextStyle(
+                        color = TextWhite,
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp
+                    ),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .focusRequester(focusRequester),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextWhite,
+                        unfocusedTextColor = TextWhite,
+                        cursorColor = accentColor,
+                        focusedBorderColor = accentColor.copy(alpha = 0.7f),
+                        unfocusedBorderColor = GlassBorder,
+                        focusedContainerColor = Color(0x33000000),
+                        unfocusedContainerColor = Color(0x22000000)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
                 )
             }
         } else {
-            // Check for timestamps e.g. [00:12.34]
-            val timestampRegex = Regex("""\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)""")
-            val lines = lyrics.lines()
-            val hasTimestamps = lines.any { timestampRegex.matches(it.trim()) }
+            // Lyrics Text Content (Synced or Static, center-aligned over cover)
+            val scrollState = rememberScrollState()
 
-            if (hasTimestamps) {
-                val parsedLines = lines.mapNotNull { line ->
-                    val match = timestampRegex.find(line.trim())
-                    if (match != null) {
-                        val mins = match.groupValues[1].toLongOrNull() ?: 0L
-                        val secs = match.groupValues[2].toLongOrNull() ?: 0L
-                        val ms = match.groupValues[3].toLongOrNull() ?: 0L
-                        val timeMs = mins * 60000 + secs * 1000 + (if (ms < 100) ms * 10 else ms)
-                        val text = match.groupValues[4].trim()
-                        Pair(timeMs, text)
-                    } else null
-                }
-
-                // Find active line index
-                val activeIndex = parsedLines.indexOfLast { it.first <= currentPos }.coerceAtLeast(0)
-
-                Column(
+            if (lyrics.isBlank()) {
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(scrollState)
-                        .padding(top = 36.dp, bottom = 24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onDoubleTap = { onClose() }
+                            )
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
-                    parsedLines.forEachIndexed { idx, item ->
-                        val isActive = idx == activeIndex
-                        Text(
-                            text = item.second.ifBlank { "• • •" },
-                            color = if (isActive) accentColor else TextMuted,
-                            fontSize = if (isActive) (baseFontSize.value + 2).sp else baseFontSize,
-                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp)
-                        )
-                    }
+                    Text(
+                        text = "No embedded lyrics available.\nTap edit icon above to add,\nor double-tap to dismiss.",
+                        color = TextMuted,
+                        fontSize = baseFontSize,
+                        textAlign = TextAlign.Center
+                    )
                 }
             } else {
-                // Static lyrics
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(scrollState)
-                        .padding(top = 36.dp, bottom = 24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                // Check for timestamps e.g. [00:12.34]
+                val timestampRegex = Regex("""\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)""")
+                val lines = lyrics.lines()
+                val hasTimestamps = lines.any { timestampRegex.matches(it.trim()) }
+
+                if (hasTimestamps) {
+                    val parsedLines = lines.mapNotNull { line ->
+                        val match = timestampRegex.find(line.trim())
+                        if (match != null) {
+                            val mins = match.groupValues[1].toLongOrNull() ?: 0L
+                            val secs = match.groupValues[2].toLongOrNull() ?: 0L
+                            val ms = match.groupValues[3].toLongOrNull() ?: 0L
+                            val timeMs = mins * 60000 + secs * 1000 + (if (ms < 100) ms * 10 else ms)
+                            val text = match.groupValues[4].trim()
+                            Pair(timeMs, text)
+                        } else null
+                    }
+
+                    // Find active line index
+                    val activeIndex = parsedLines.indexOfLast { it.first <= currentPos }.coerceAtLeast(0)
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(scrollState)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onDoubleTap = { onClose() }
+                                )
+                            }
+                            .padding(top = 40.dp, bottom = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        parsedLines.forEachIndexed { idx, item ->
+                            val isActive = idx == activeIndex
+                            Text(
+                                text = item.second.ifBlank { "• • •" },
+                                color = if (isActive) accentColor else TextMuted,
+                                fontSize = if (isActive) (baseFontSize.value + 2).sp else baseFontSize,
+                                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp)
+                            )
+                        }
+                    }
+                } else {
+                    // Static lyrics
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(scrollState)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onDoubleTap = { onClose() }
+                                )
+                            }
+                            .padding(top = 40.dp, bottom = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        lines.forEach { line ->
+                            Text(
+                                text = line,
+                                color = TextWhite,
+                                fontSize = baseFontSize,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Action Bar Top: Declared AFTER content with zIndex(20f) so it is ALWAYS on top!
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .zIndex(20f),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Left side
+            if (isEditing) {
+                Text(
+                    text = "Editing Lyrics",
+                    color = accentColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            } else {
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(32.dp)
                 ) {
-                    lines.forEach { line ->
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Close Lyrics",
+                        tint = TextMuted,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // Right side actions
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                if (isEditing) {
+                    // Cancel editing
+                    IconButton(
+                        onClick = {
+                            isEditing = false
+                            keyboardController?.hide()
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "Cancel",
+                            tint = TextMuted,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    // Save lyrics
+                    IconButton(
+                        onClick = {
+                            onSaveLyrics(editedLyricsText.trim())
+                            isEditing = false
+                            keyboardController?.hide()
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = "Save Lyrics",
+                            tint = accentColor,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                } else {
+                    // Edit Lyrics Button
+                    IconButton(
+                        onClick = {
+                            editedLyricsText = lyrics
+                            isEditing = true
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Edit,
+                            contentDescription = "Edit Lyrics",
+                            tint = TextWhite.copy(alpha = 0.85f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    // Font Size Cycle Button (White text per user request!)
+                    IconButton(
+                        onClick = {
+                            val nextSize = when (fontSizeSetting) {
+                                "SMALL" -> "MEDIUM"
+                                "MEDIUM" -> "LARGE"
+                                "LARGE" -> "EXTRA_LARGE"
+                                else -> "SMALL"
+                            }
+                            onFontSizeChange(nextSize)
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
                         Text(
-                            text = line,
+                            text = when (fontSizeSetting) {
+                                "SMALL" -> "S"
+                                "MEDIUM" -> "M"
+                                "LARGE" -> "L"
+                                "EXTRA_LARGE" -> "XL"
+                                else -> "M"
+                            },
                             color = TextWhite,
-                            fontSize = baseFontSize,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp)
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
                         )
                     }
                 }
