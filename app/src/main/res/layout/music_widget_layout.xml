@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- Background card layer supporting live opacity slider (can be 100% transparent) -->
+    <ImageView
+        android:id="@+id/widget_bg_layer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:src="@drawable/widget_background"
+        android:scaleType="fitXY" />
+
+    <!-- Content Row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <!-- Album Cover on the Left: Strictly 1:1 square with center vertical alignment -->
+        <ImageView
+            android:id="@+id/widget_cover"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:layout_gravity="center_vertical"
+            android:layout_marginStart="8dp"
+            android:scaleType="centerCrop"
+            android:src="@drawable/ic_album_placeholder"
+            android:contentDescription="Album Art" />
+
+        <!-- Info & Controls Column on the Right -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:paddingStart="14dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:gravity="center_vertical">
+
+            <!-- Title & Artist (Top) -->
+            <LinearLayout
+                android:id="@+id/widget_info_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/widget_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="No Track Playing"
+                    android:textColor="#FFFFFFFF"
+                    android:textStyle="bold"
+                    android:textSize="14sp"
+                    android:singleLine="true"
+                    android:ellipsize="end" />
+
+                <TextView
+                    android:id="@+id/widget_artist"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Select a track to play"
+                    android:textColor="#B3FFFFFF"
+                    android:textSize="12sp"
+                    android:singleLine="true"
+                    android:ellipsize="end" />
+            </LinearLayout>
+
+            <!-- Controls (Middle): Prev, Play/Pause, Next -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:layout_marginTop="3dp"
+                android:layout_marginBottom="3dp">
+
+                <ImageButton
+                    android:id="@+id/widget_btn_prev"
+                    android:layout_width="38dp"
+                    android:layout_height="34dp"
+                    android:background="@android:color/transparent"
+                    android:src="@drawable/ic_skip_previous"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="Previous" />
+
+                <ImageButton
+                    android:id="@+id/widget_btn_play_pause"
+                    android:layout_width="46dp"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="@android:color/transparent"
+                    android:src="@drawable/ic_play"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="Play/Pause" />
+
+                <ImageButton
+                    android:id="@+id/widget_btn_next"
+                    android:layout_width="38dp"
+                    android:layout_height="34dp"
+                    android:background="@android:color/transparent"
+                    android:src="@drawable/ic_skip_next"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="Next" />
+
+            </LinearLayout>
+
+            <!-- Thicker Touchable Seekbar (Bottom) -->
+            <FrameLayout
+                android:id="@+id/widget_seekbar_container"
+                android:layout_width="match_parent"
+                android:layout_height="16dp"
+                android:layout_marginTop="1dp"
+                android:layout_marginBottom="2dp">
+
+                <!-- Visual Seekbar Progress (Thicker 7dp line) -->
+                <ProgressBar
+                    android:id="@+id/widget_progress"
+                    style="@android:style/Widget.ProgressBar.Horizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="7dp"
+                    android:layout_gravity="center_vertical"
+                    android:max="1000"
+                    android:progress="0"
+                    android:progressTint="#FFBB86FC" />
+
+                <!-- 10 Touch-To-Seek Segments Overlay -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="horizontal">
+
+                    <TextView android:id="@+id/widget_seek_0" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="@android:color/transparent" />
+                    <TextView android:id="@+id/widget_seek_1" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="@android:color/transparent" />
+                    <TextView android:id="@+id/widget_seek_2" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="@android:color/transparent" />
+                    <TextView android:id="@+id/widget_seek_3" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="@android:color/transparent" />
+                    <TextView android:id="@+id/widget_seek_4" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="@android:color/transparent" />
+                    <TextView android:id="@+id/widget_seek_5" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="@android:color/transparent" />
+                    <TextView android:id="@+id/widget_seek_6" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="@android:color/transparent" />
+                    <TextView android:id="@+id/widget_seek_7" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="@android:color/transparent" />
+                    <TextView android:id="@+id/widget_seek_8" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="@android:color/transparent" />
+                    <TextView android:id="@+id/widget_seek_9" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:background="@android:color/transparent" />
+
+                </LinearLayout>
+
+            </FrameLayout>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</FrameLayout>

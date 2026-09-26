@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Layer 1: Outermost Frosted Glass Squircle Frame -->
+    <path
+        android:pathData="M34,24 L74,24 C82,24 86,28 86,36 L86,72 C86,80 82,84 74,84 L34,84 C26,84 22,80 22,72 L22,36 C22,28 26,24 34,24 Z"
+        android:fillColor="#15FFFFFF"
+        android:strokeWidth="1.2"
+        android:strokeColor="#30FFFFFF" />
+
+    <!-- Layer 2: Middle Translucent Glass Layer with Neon Backlight Glow -->
+    <path
+        android:pathData="M37,28 L71,28 C78,28 82,32 82,39 L82,69 C82,76 78,80 71,80 L37,80 C30,80 26,76 26,69 L26,39 C26,32 30,28 37,28 Z"
+        android:fillColor="#22182035">
+    </path>
+    <!-- Middle Layer Neon Border Glow (Cyan left to Purple right) -->
+    <path
+        android:pathData="M37,28 L71,28 C78,28 82,32 82,39 L82,69 C82,76 78,80 71,80 L37,80 C30,80 26,76 26,69 L26,39 C26,32 30,28 37,28 Z"
+        android:strokeWidth="1.5">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="26"
+                android:startY="54"
+                android:endX="82"
+                android:endY="54"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#9900E5FF" />
+                <item android:offset="0.4" android:color="#664D7CFF" />
+                <item android:offset="1.0" android:color="#CCB026FF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Layer 3: Inner Concentric Glass Squircle -->
+    <path
+        android:pathData="M40,32 L68,32 C74,32 78,36 78,42 L78,66 C78,72 74,76 68,76 L40,76 C34,76 30,72 30,66 L30,42 C30,36 34,32 40,32 Z"
+        android:fillColor="#281A1F38"
+        android:strokeWidth="1"
+        android:strokeColor="#25FFFFFF" />
+
+    <!-- Neon Rim Glow directly behind the Play Button (Cyan on left, Violet on right) -->
+    <path
+        android:pathData="M44,38 L70,52 C72.5,53.5 72.5,56.5 70,58 L44,72 C41.5,73.5 39,72 39,69 L39,41 C39,38 41.5,36.5 44,38 Z"
+        android:strokeWidth="6">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="38"
+                android:startY="54"
+                android:endX="74"
+                android:endY="54"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#CC00E5FF" />
+                <item android:offset="0.5" android:color="#99536DFE" />
+                <item android:offset="1.0" android:color="#EECC00FF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Centered Frosted Glass Rounded-Triangle Play Button (User's iconic center shape) -->
+    <path
+        android:pathData="M45,40 L68,52.5 C69.8,53.5 69.8,55.5 68,56.5 L45,69 C43.2,70 41.5,69 41.5,67 L41.5,42 C41.5,40 43.2,39 45,40 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="41.5"
+                android:startY="38"
+                android:endX="70"
+                android:endY="70"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#E0E6F0FF" />
+                <item android:offset="0.5" android:color="#CCD5E0FA" />
+                <item android:offset="1.0" android:color="#B8E0CCFF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Highlight sheen on play button edge -->
+    <path
+        android:pathData="M45,40 L68,52.5 C69.8,53.5 69.8,55.5 68,56.5 L45,69 C43.2,70 41.5,69 41.5,67 L41.5,42 C41.5,40 43.2,39 45,40 Z"
+        android:strokeWidth="1.2"
+        android:strokeColor="#60FFFFFF" />
+</vector>
