@@ -69,11 +69,15 @@ import com.example.ui.viewmodel.SortDirection
 import com.example.ui.viewmodel.ViewLayoutMode
 import kotlinx.coroutines.launch
 
+import com.example.ui.components.MultiSelectActionBar
+import com.example.ui.dialogs.AddToPlaylistBatchDialog
+
 @Composable
 fun SongsTab(
     viewModel: MusicViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val songs by viewModel.sortedSongs.collectAsState()
     val currentSong by viewModel.currentSong.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
@@ -82,6 +86,10 @@ fun SongsTab(
     val isScanning by viewModel.isScanning.collectAsState()
     val dynamicAccent by viewModel.dynamicAccentColor.collectAsState()
     val layoutMode by viewModel.songsLayoutMode.collectAsState()
+
+    val selectedSongIds by viewModel.selectedSongIds.collectAsState()
+    val isSelectionMode by viewModel.isSelectionMode.collectAsState()
+    var showBatchAddToPlaylist by remember { mutableStateOf(false) }
 
     var songToAddToPlaylist by remember { mutableStateOf<Song?>(null) }
 
@@ -283,7 +291,10 @@ fun SongsTab(
                                     onToggleFavorite = { viewModel.toggleFavorite(song) },
                                     onDelete = { viewModel.deleteSong(song) },
                                     accentColor = dynamicAccent,
-                                    isCompact = false
+                                    isCompact = false,
+                                    isSelectionMode = isSelectionMode,
+                                    isSelected = selectedSongIds.contains(song.id),
+                                    onLongClick = { viewModel.toggleSongSelection(song.id) }
                                 )
                             }
                         }
@@ -308,7 +319,10 @@ fun SongsTab(
                                     onToggleFavorite = { viewModel.toggleFavorite(song) },
                                     onDelete = { viewModel.deleteSong(song) },
                                     accentColor = dynamicAccent,
-                                    isCompact = true
+                                    isCompact = true,
+                                    isSelectionMode = isSelectionMode,
+                                    isSelected = selectedSongIds.contains(song.id),
+                                    onLongClick = { viewModel.toggleSongSelection(song.id) }
                                 )
                             }
                         }
@@ -369,6 +383,23 @@ fun SongsTab(
                             accentColor = dynamicAccent
                         )
                     }
+
+                    // Multi-Select Floating Action Bar
+                    MultiSelectActionBar(
+                        selectedCount = selectedSongIds.size,
+                        totalCount = songs.size,
+                        accentColor = dynamicAccent,
+                        onSelectAll = { viewModel.selectAllSongs(songs) },
+                        onClose = { viewModel.clearSelection() },
+                        onPlayNow = { viewModel.playSelectedSongsNow(songs) },
+                        onPlayNext = { viewModel.playSelectedSongsNext(songs) },
+                        onAddToQueue = { viewModel.addSelectedSongsToQueue(songs) },
+                        onAddToPlaylist = { showBatchAddToPlaylist = true },
+                        onDelete = { viewModel.deleteSelectedSongs(context, songs) },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 75.dp)
+                    )
                 }
             }
         }
@@ -380,6 +411,19 @@ fun SongsTab(
                 viewModel = viewModel,
                 onDismiss = { songToAddToPlaylist = null }
             )
+        }
+
+        if (showBatchAddToPlaylist) {
+            val selectedSongs = songs.filter { it.id in selectedSongIds }
+            AddToPlaylistBatchDialog(
+                songs = selectedSongs,
+                viewModel = viewModel,
+                onDismiss = { showBatchAddToPlaylist = false }
+            )
+        }
+
+        androidx.activity.compose.BackHandler(enabled = isSelectionMode) {
+            viewModel.clearSelection()
         }
     }
 }

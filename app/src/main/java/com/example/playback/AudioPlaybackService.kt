@@ -9,19 +9,27 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.database.ContentObserver
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Binder
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.view.KeyEvent
 import androidx.core.app.NotificationCompat
+import androidx.media3.common.Player
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionResult
 import com.example.MainActivity
 import com.example.R
 import com.example.data.model.Song
 import com.example.data.repository.MusicRepository
+import com.example.util.AppLogger
 import com.example.widget.WidgetUpdateHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +40,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.InputStream
 
 class AudioPlaybackService : MediaSessionService() {
@@ -83,9 +92,42 @@ class AudioPlaybackService : MediaSessionService() {
         private set
     private var originalQueue: List<Song> = emptyList()
 
+    // Volume monitoring: auto-pause on 0 volume, DO NOT auto-play when increased
+    private val volumeChangeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "android.media.VOLUME_CHANGED_ACTION") {
+                checkZeroVolumeAndPause()
+            }
+        }
+    }
+
+    private val volumeObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) {
+            super.onChange(selfChange)
+            checkZeroVolumeAndPause()
+        }
+    }
+
+    private fun checkZeroVolumeAndPause() {
+        try {
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+            val currentVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+            if (currentVol == 0) {
+                if (playerEngine.isPlaying.value) {
+                    AppLogger.i("AudioPlaybackService", "Volume reached 0 -> Auto-pausing playback per user rule")
+                    playerEngine.pause()
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.w("AudioPlaybackService", "Error during volume zero check", e)
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
+        AppLogger.init(applicationContext)
+        AppLogger.i("AudioPlaybackService", "Service onCreate")
         repository = MusicRepository(applicationContext)
 
         playerEngine = AudioPlayerEngine(
@@ -102,7 +144,98 @@ class AudioPlaybackService : MediaSessionService() {
             }
         }
 
-        mediaSession = MediaSession.Builder(this, playerEngine.exoPlayer).build()
+        // Bluetooth headset & Media button callback
+        val sessionCallback = object : MediaSession.Callback {
+            override fun onMediaButtonEvent(
+                session: MediaSession,
+                controllerInfo: MediaSession.ControllerInfo,
+                intent: Intent
+            ): Boolean {
+                val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
+                }
+
+                if (keyEvent != null && keyEvent.action == KeyEvent.ACTION_DOWN) {
+                    AppLogger.i("AudioPlaybackService", "Bluetooth/MediaButton event received: keyCode=${keyEvent.keyCode}")
+                    when (keyEvent.keyCode) {
+                        KeyEvent.KEYCODE_MEDIA_NEXT,
+                        KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+                        KeyEvent.KEYCODE_MEDIA_STEP_FORWARD -> {
+                            playNext()
+                            return true
+                        }
+                        KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+                        KeyEvent.KEYCODE_MEDIA_REWIND,
+                        KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD -> {
+                            playPrevious()
+                            return true
+                        }
+                        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                        KeyEvent.KEYCODE_HEADSETHOOK -> {
+                            togglePlayPause()
+                            return true
+                        }
+                        KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                            playerEngine.play()
+                            return true
+                        }
+                        KeyEvent.KEYCODE_MEDIA_PAUSE,
+                        KeyEvent.KEYCODE_MEDIA_STOP -> {
+                            playerEngine.pause()
+                            return true
+                        }
+                    }
+                }
+                return super.onMediaButtonEvent(session, controllerInfo, intent)
+            }
+
+            override fun onPlayerCommandRequest(
+                session: MediaSession,
+                controllerInfo: MediaSession.ControllerInfo,
+                playerCommand: Int
+            ): Int {
+                AppLogger.d("AudioPlaybackService", "Player command request: $playerCommand")
+                when (playerCommand) {
+                    Player.COMMAND_SEEK_TO_NEXT,
+                    Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> {
+                        playNext()
+                        return SessionResult.RESULT_SUCCESS
+                    }
+                    Player.COMMAND_SEEK_TO_PREVIOUS,
+                    Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> {
+                        playPrevious()
+                        return SessionResult.RESULT_SUCCESS
+                    }
+                }
+                return super.onPlayerCommandRequest(session, controllerInfo, playerCommand)
+            }
+
+            override fun onConnect(
+                session: MediaSession,
+                controller: MediaSession.ControllerInfo
+            ): MediaSession.ConnectionResult {
+                val connectionResult = super.onConnect(session, controller)
+                val availableSessionCommands = connectionResult.availableSessionCommands.buildUpon()
+                val availablePlayerCommands = connectionResult.availablePlayerCommands.buildUpon()
+                    .add(Player.COMMAND_SEEK_TO_NEXT)
+                    .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                    .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                    .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                    .add(Player.COMMAND_PLAY_PAUSE)
+                    .build()
+                return MediaSession.ConnectionResult.accept(
+                    availableSessionCommands.build(),
+                    availablePlayerCommands
+                )
+            }
+        }
+
+        mediaSession = MediaSession.Builder(this, playerEngine.exoPlayer)
+            .setCallback(sessionCallback)
+            .build()
         mediaSession?.let { addSession(it) }
 
         createNotificationChannel()
@@ -129,11 +262,85 @@ class AudioPlaybackService : MediaSessionService() {
             }
         }
 
+        // Restore saved playback state and queue immediately so widgets and MiniPlayer are never empty
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val saved = repository.getPlaybackStateSync()
+                val allSongs = repository.allSongs.firstOrNull() ?: emptyList()
+                if (saved != null && allSongs.isNotEmpty()) {
+                    val queueList = if (!saved.queueSongIds.isNullOrBlank()) {
+                        val ids = saved.queueSongIds.split(",").mapNotNull { it.trim().toLongOrNull() }
+                        val map = repository.getSongsByIds(ids).associateBy { it.id }
+                        val ordered = ids.mapNotNull { map[it] }
+                        if (ordered.isNotEmpty()) ordered else allSongs
+                    } else allSongs
+
+                    val targetSong = if (saved.currentSongId != null) {
+                        repository.getSongById(saved.currentSongId) ?: queueList.firstOrNull()
+                    } else queueList.firstOrNull()
+
+                    val targetIdx = if (saved.currentQueueIndex in queueList.indices) {
+                        saved.currentQueueIndex
+                    } else {
+                        queueList.indexOfFirst { it.id == targetSong?.id }.coerceAtLeast(0)
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        if (queue.isEmpty()) {
+                            queue.clear()
+                            queue.addAll(queueList)
+                            originalQueue = queueList.toList()
+                            currentQueueIndex = targetIdx
+                            currentSong = queueList.getOrNull(targetIdx) ?: targetSong
+                            repeatMode = saved.repeatMode
+                            shuffleEnabled = saved.shuffleEnabled
+
+                            if (currentSong != null) {
+                                playerEngine.prepareTrack(currentSong!!, saved.currentPosition, playWhenReady = false)
+                            }
+
+                            updateNotification()
+                            WidgetUpdateHelper.updateWidgets(
+                                applicationContext,
+                                currentSong,
+                                getNextSong(),
+                                false,
+                                saved.currentPosition,
+                                currentSong?.duration ?: 0L
+                            )
+                            onTrackChanged?.invoke(currentSong)
+                            onQueueChanged?.invoke(queue)
+                            AppLogger.i("AudioPlaybackService", "Restored playback state on service start: ${currentSong?.title} at ${saved.currentPosition}ms (queue=${queue.size})")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.w("AudioPlaybackService", "Error restoring saved playback state", e)
+            }
+        }
+
         try {
             val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
             registerReceiver(screenOffReceiver, filter)
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+
+        // Register volume listeners
+        try {
+            registerReceiver(volumeChangeReceiver, IntentFilter("android.media.VOLUME_CHANGED_ACTION"))
+        } catch (e: Exception) {
+            AppLogger.w("AudioPlaybackService", "Failed to register volume receiver", e)
+        }
+
+        try {
+            contentResolver.registerContentObserver(
+                android.provider.Settings.System.CONTENT_URI,
+                true,
+                volumeObserver
+            )
+        } catch (e: Exception) {
+            AppLogger.w("AudioPlaybackService", "Failed to register volume content observer", e)
         }
     }
 
@@ -593,6 +800,12 @@ class AudioPlaybackService : MediaSessionService() {
     override fun onDestroy() {
         try {
             unregisterReceiver(screenOffReceiver)
+        } catch (_: Exception) {}
+        try {
+            unregisterReceiver(volumeChangeReceiver)
+        } catch (_: Exception) {}
+        try {
+            contentResolver.unregisterContentObserver(volumeObserver)
         } catch (_: Exception) {}
         saveCurrentPlaybackState()
         mediaSession?.let { session ->

@@ -44,6 +44,7 @@ import com.example.data.model.Song
 import com.example.ui.theme.AccentCyan
 import com.example.ui.theme.AccentRed
 import com.example.ui.theme.DarkCardGlass
+import com.example.ui.theme.GlassBorder
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.TextWhite
@@ -51,8 +52,15 @@ import com.example.ui.theme.glassmorphic
 
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Check
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SongItemCard(
     song: Song,
@@ -67,7 +75,10 @@ fun SongItemCard(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
     accentColor: Color = AccentCyan,
-    isCompact: Boolean = false
+    isCompact: Boolean = false,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onLongClick: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -76,9 +87,23 @@ fun SongItemCard(
             .fillMaxWidth()
             .glassmorphic(
                 shape = RoundedCornerShape(12.dp),
-                backgroundColor = if (isCurrent) accentColor.copy(alpha = 0.22f) else DarkCardGlass
+                backgroundColor = when {
+                    isSelected -> accentColor.copy(alpha = 0.35f)
+                    isCurrent -> accentColor.copy(alpha = 0.22f)
+                    else -> DarkCardGlass
+                },
+                borderColor = if (isSelected) accentColor else GlassBorder
             )
-            .clickable { onClick() }
+            .combinedClickable(
+                onClick = {
+                    if (isSelectionMode) {
+                        onLongClick()
+                    } else {
+                        onClick()
+                    }
+                },
+                onLongClick = onLongClick
+            )
             .padding(horizontal = if (isCompact) 8.dp else 10.dp, vertical = if (isCompact) 5.dp else 8.dp)
             .testTag("song_item_${song.id}")
     ) {
@@ -86,6 +111,27 @@ fun SongItemCard(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Selection indicator checkbox in multi-select mode
+            if (isSelectionMode) {
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(if (isSelected) accentColor else Color(0x33FFFFFF)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Selected",
+                            tint = Color.Black,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(if (isCompact) 8.dp else 10.dp))
+            }
+
             // Square Cover Thumbnail
             SquareCoverArt(
                 albumArtUri = song.albumArtUri,

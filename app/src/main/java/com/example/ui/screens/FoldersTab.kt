@@ -64,6 +64,8 @@ import com.example.ui.theme.glassmorphic
 import com.example.ui.viewmodel.MusicViewModel
 import com.example.ui.viewmodel.SortDirection
 import com.example.ui.viewmodel.ViewLayoutMode
+import com.example.ui.components.MultiSelectActionBar
+import com.example.ui.dialogs.AddToPlaylistBatchDialog
 import java.io.File
 
 @Composable
@@ -80,11 +82,19 @@ fun FoldersTab(
     val selectedFolder by viewModel.selectedFolder.collectAsState()
     val layoutMode by viewModel.foldersLayoutMode.collectAsState()
     val dynamicAccent by viewModel.dynamicAccentColor.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    val selectedSongIds by viewModel.selectedSongIds.collectAsState()
+    val isSelectionMode by viewModel.isSelectionMode.collectAsState()
+    var showBatchAddToPlaylist by remember { mutableStateOf(false) }
 
     var songToAddToPlaylist by remember { mutableStateOf<Song?>(null) }
 
-    // Hardware and Gesture Back Handler: Return to folder list instead of switching tabs or closing app
-    BackHandler(enabled = selectedFolder != null) {
+    // Hardware and Gesture Back Handler
+    BackHandler(enabled = isSelectionMode) {
+        viewModel.clearSelection()
+    }
+    BackHandler(enabled = !isSelectionMode && selectedFolder != null) {
         viewModel.selectedFolder.value = null
     }
 
@@ -193,7 +203,10 @@ fun FoldersTab(
                                         onToggleFavorite = { viewModel.toggleFavorite(song) },
                                         onDelete = { viewModel.deleteSong(song) },
                                         accentColor = dynamicAccent,
-                                        isCompact = false
+                                        isCompact = false,
+                                        isSelectionMode = isSelectionMode,
+                                        isSelected = selectedSongIds.contains(song.id),
+                                        onLongClick = { viewModel.toggleSongSelection(song.id) }
                                     )
                                 }
                             }
@@ -218,7 +231,10 @@ fun FoldersTab(
                                         onToggleFavorite = { viewModel.toggleFavorite(song) },
                                         onDelete = { viewModel.deleteSong(song) },
                                         accentColor = dynamicAccent,
-                                        isCompact = true
+                                        isCompact = true,
+                                        isSelectionMode = isSelectionMode,
+                                        isSelected = selectedSongIds.contains(song.id),
+                                        onLongClick = { viewModel.toggleSongSelection(song.id) }
                                     )
                                 }
                             }
@@ -279,6 +295,23 @@ fun FoldersTab(
                             accentColor = dynamicAccent
                         )
                     }
+
+                    // Multi-Select Floating Action Bar
+                    MultiSelectActionBar(
+                        selectedCount = selectedSongIds.size,
+                        totalCount = folderSongs.size,
+                        accentColor = dynamicAccent,
+                        onSelectAll = { viewModel.selectAllSongs(folderSongs) },
+                        onClose = { viewModel.clearSelection() },
+                        onPlayNow = { viewModel.playSelectedSongsNow(folderSongs) },
+                        onPlayNext = { viewModel.playSelectedSongsNext(folderSongs) },
+                        onAddToQueue = { viewModel.addSelectedSongsToQueue(folderSongs) },
+                        onAddToPlaylist = { showBatchAddToPlaylist = true },
+                        onDelete = { viewModel.deleteSelectedSongs(context, folderSongs) },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 75.dp)
+                    )
                 }
             }
         } else {
@@ -490,6 +523,15 @@ fun FoldersTab(
                 song = song,
                 viewModel = viewModel,
                 onDismiss = { songToAddToPlaylist = null }
+            )
+        }
+
+        if (showBatchAddToPlaylist) {
+            val selectedSongs = songs.filter { it.id in selectedSongIds }
+            AddToPlaylistBatchDialog(
+                songs = selectedSongs,
+                viewModel = viewModel,
+                onDismiss = { showBatchAddToPlaylist = false }
             )
         }
     }

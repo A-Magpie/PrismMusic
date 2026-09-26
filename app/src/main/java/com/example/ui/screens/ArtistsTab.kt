@@ -63,6 +63,8 @@ import com.example.ui.theme.glassmorphic
 import com.example.ui.viewmodel.MusicViewModel
 import com.example.ui.viewmodel.SortDirection
 import com.example.ui.viewmodel.ViewLayoutMode
+import com.example.ui.components.MultiSelectActionBar
+import com.example.ui.dialogs.AddToPlaylistBatchDialog
 
 @Composable
 fun ArtistsTab(
@@ -77,11 +79,19 @@ fun ArtistsTab(
     val selectedArtist by viewModel.selectedArtist.collectAsState()
     val layoutMode by viewModel.artistsLayoutMode.collectAsState()
     val dynamicAccent by viewModel.dynamicAccentColor.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    val selectedSongIds by viewModel.selectedSongIds.collectAsState()
+    val isSelectionMode by viewModel.isSelectionMode.collectAsState()
+    var showBatchAddToPlaylist by remember { mutableStateOf(false) }
 
     var songToAddToPlaylist by remember { mutableStateOf<Song?>(null) }
 
-    // Hardware and Gesture Back Handler: Return to artist list instead of switching tabs or closing app
-    BackHandler(enabled = selectedArtist != null) {
+    // Hardware and Gesture Back Handler
+    BackHandler(enabled = isSelectionMode) {
+        viewModel.clearSelection()
+    }
+    BackHandler(enabled = !isSelectionMode && selectedArtist != null) {
         viewModel.selectedArtist.value = null
     }
 
@@ -185,7 +195,10 @@ fun ArtistsTab(
                                         onToggleFavorite = { viewModel.toggleFavorite(song) },
                                         onDelete = { viewModel.deleteSong(song) },
                                         accentColor = dynamicAccent,
-                                        isCompact = false
+                                        isCompact = false,
+                                        isSelectionMode = isSelectionMode,
+                                        isSelected = selectedSongIds.contains(song.id),
+                                        onLongClick = { viewModel.toggleSongSelection(song.id) }
                                     )
                                 }
                             }
@@ -210,7 +223,10 @@ fun ArtistsTab(
                                         onToggleFavorite = { viewModel.toggleFavorite(song) },
                                         onDelete = { viewModel.deleteSong(song) },
                                         accentColor = dynamicAccent,
-                                        isCompact = true
+                                        isCompact = true,
+                                        isSelectionMode = isSelectionMode,
+                                        isSelected = selectedSongIds.contains(song.id),
+                                        onLongClick = { viewModel.toggleSongSelection(song.id) }
                                     )
                                 }
                             }
@@ -271,6 +287,23 @@ fun ArtistsTab(
                             accentColor = dynamicAccent
                         )
                     }
+
+                    // Multi-Select Floating Action Bar
+                    MultiSelectActionBar(
+                        selectedCount = selectedSongIds.size,
+                        totalCount = artistTracks.size,
+                        accentColor = dynamicAccent,
+                        onSelectAll = { viewModel.selectAllSongs(artistTracks) },
+                        onClose = { viewModel.clearSelection() },
+                        onPlayNow = { viewModel.playSelectedSongsNow(artistTracks) },
+                        onPlayNext = { viewModel.playSelectedSongsNext(artistTracks) },
+                        onAddToQueue = { viewModel.addSelectedSongsToQueue(artistTracks) },
+                        onAddToPlaylist = { showBatchAddToPlaylist = true },
+                        onDelete = { viewModel.deleteSelectedSongs(context, artistTracks) },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 75.dp)
+                    )
                 }
             }
         } else {
@@ -475,6 +508,15 @@ fun ArtistsTab(
                 song = song,
                 viewModel = viewModel,
                 onDismiss = { songToAddToPlaylist = null }
+            )
+        }
+
+        if (showBatchAddToPlaylist) {
+            val selectedSongs = songs.filter { it.id in selectedSongIds }
+            AddToPlaylistBatchDialog(
+                songs = selectedSongs,
+                viewModel = viewModel,
+                onDismiss = { showBatchAddToPlaylist = false }
             )
         }
     }

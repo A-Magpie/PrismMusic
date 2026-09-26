@@ -549,6 +549,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         checkAndLoadLyrics(song)
     }
 
+    fun updateSongLyrics(songId: Long, newLyrics: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val song = repository.getSongById(songId) ?: return@launch
+            val updated = song.copy(lyrics = newLyrics)
+            repository.updateSong(updated)
+            if (_currentSong.value?.id == songId) {
+                _currentSong.value = updated
+            }
+            com.example.util.AppLogger.i("MusicViewModel", "Updated lyrics for song id=$songId")
+        }
+    }
+
     private fun observeService() {
         val s = service ?: return
         s.onTrackChanged = { song ->
@@ -590,8 +602,18 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
         _repeatMode.value = s.repeatMode
         _shuffleEnabled.value = s.shuffleEnabled
-        _currentSong.value = s.currentSong
-        _queue.value = s.queue.toList()
+        if (s.currentSong != null) {
+            _currentSong.value = s.currentSong
+        } else if (_currentSong.value != null && s.queue.isEmpty()) {
+            s.setQueue(_queue.value, _currentQueueIndex.value, playImmediately = false)
+            s.playerEngine.seekTo(_currentPosition.value)
+        }
+
+        if (s.queue.isNotEmpty()) {
+            _queue.value = s.queue.toList()
+        } else if (_queue.value.isNotEmpty()) {
+            s.setQueue(_queue.value, _currentQueueIndex.value, playImmediately = false)
+        }
         _currentQueueIndex.value = s.currentQueueIndex
     }
 
@@ -848,23 +870,48 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val context = getApplication<Application>()
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                var filename = "Imported Playlist"
-                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                    val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                    if (nameIndex != -1 && cursor.moveToFirst()) {
-                        cursor.getString(nameIndex)?.let { filename = it }
-                    }
+                var derivedName = ""
+                // 1. Try file path or last path segment
+                val pathSegment = uri.lastPathSegment?.substringAfterLast('/')?.substringAfterLast('\\')
+                if (!pathSegment.isNullOrBlank()) {
+                    derivedName = pathSegment.substringBeforeLast(".")
                 }
-                filename = filename.substringBeforeLast(".")
+
+                // 2. Try content resolver query
+                if (uri.scheme == "content") {
+                    try {
+                        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                            val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                            if (nameIndex != -1 && cursor.moveToFirst()) {
+                                cursor.getString(nameIndex)?.let {
+                                    val name = it.substringBeforeLast(".")
+                                    if (name.isNotBlank()) derivedName = name
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                if (derivedName.isBlank()) {
+                    derivedName = "Playlist_${System.currentTimeMillis() % 10000}"
+                }
 
                 val songsInDb = repository.allSongs.firstOrNull() ?: emptyList()
                 val matchedSongIds = mutableListOf<Long>()
+                var m3uPlaylistHeaderTitle: String? = null
 
                 context.contentResolver.openInputStream(uri)?.use { inputStream ->
                     val reader = BufferedReader(InputStreamReader(inputStream))
                     var line: String?
                     while (reader.readLine().also { line = it } != null) {
                         val trimmed = line?.trim() ?: continue
+                        if (trimmed.startsWith("#PLAYLIST:", ignoreCase = true)) {
+                            val headerTitle = trimmed.substringAfter(":").trim()
+                            if (headerTitle.isNotBlank()) {
+                                m3uPlaylistHeaderTitle = headerTitle
+                            }
+                            continue
+                        }
                         if (trimmed.isBlank() || trimmed.startsWith("#")) continue
 
                         val targetFilename = trimmed.substringAfterLast("/").substringAfterLast("\\").lowercase()
@@ -881,14 +928,16 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
+                val finalPlaylistName = m3uPlaylistHeaderTitle ?: derivedName
+
                 if (matchedSongIds.isNotEmpty()) {
-                    val playlistId = repository.createPlaylist(filename)
+                    val playlistId = repository.createPlaylist(finalPlaylistName)
                     matchedSongIds.forEachIndexed { idx, id ->
                         repository.addSongToPlaylist(playlistId, id, idx)
                     }
-                    m3uImportMessage.value = "Playlist \"$filename\" imported with ${matchedSongIds.size} songs."
+                    m3uImportMessage.value = "Playlist \"$finalPlaylistName\" imported with ${matchedSongIds.size} songs."
                 } else {
-                    m3uImportMessage.value = "No matching songs from this playlist found in local storage."
+                    m3uImportMessage.value = "No matching songs from playlist \"$finalPlaylistName\" found in local storage."
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -1083,6 +1132,90 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         return bestColor
+    }
+
+    // Multi-Selection State for Songs, Folders, and Artists
+    val selectedSongIds = MutableStateFlow<Set<Long>>(emptySet())
+    val isSelectionMode = MutableStateFlow(false)
+
+    fun toggleSongSelection(songId: Long) {
+        val current = selectedSongIds.value.toMutableSet()
+        if (current.contains(songId)) {
+            current.remove(songId)
+            if (current.isEmpty()) {
+                isSelectionMode.value = false
+            }
+        } else {
+            current.add(songId)
+            isSelectionMode.value = true
+        }
+        selectedSongIds.value = current
+    }
+
+    fun selectAllSongs(songs: List<Song>) {
+        val allIds = songs.map { it.id }.toSet()
+        if (selectedSongIds.value.size == allIds.size) {
+            selectedSongIds.value = emptySet()
+            isSelectionMode.value = false
+        } else {
+            selectedSongIds.value = allIds
+            isSelectionMode.value = true
+        }
+    }
+
+    fun clearSelection() {
+        selectedSongIds.value = emptySet()
+        isSelectionMode.value = false
+    }
+
+    fun playSelectedSongsNow(songs: List<Song>) {
+        val selected = songs.filter { it.id in selectedSongIds.value }
+        if (selected.isNotEmpty()) {
+            playSong(selected.first(), selected)
+        }
+        clearSelection()
+    }
+
+    fun playSelectedSongsNext(songs: List<Song>) {
+        val selected = songs.filter { it.id in selectedSongIds.value }
+        selected.reversed().forEach { song ->
+            service?.playNextInQueue(song)
+        }
+        clearSelection()
+    }
+
+    fun addSelectedSongsToQueue(songs: List<Song>) {
+        val selected = songs.filter { it.id in selectedSongIds.value }
+        selected.forEach { song ->
+            service?.addToQueueEnd(song)
+        }
+        clearSelection()
+    }
+
+    fun addSelectedSongsToPlaylist(playlistId: Long, songs: List<Song>) {
+        val selected = songs.filter { it.id in selectedSongIds.value }
+        viewModelScope.launch(Dispatchers.IO) {
+            selected.forEachIndexed { index, song ->
+                repository.addSongToPlaylist(playlistId, song.id, index)
+            }
+            com.example.util.AppLogger.i("MusicViewModel", "Added ${selected.size} selected songs to playlist $playlistId")
+        }
+        clearSelection()
+    }
+
+    fun deleteSelectedSongs(context: Context? = null, songs: List<Song>) {
+        val selected = songs.filter { it.id in selectedSongIds.value }
+        viewModelScope.launch(Dispatchers.IO) {
+            selected.forEach { song ->
+                try {
+                    deleteSong(song)
+                } catch (e: Exception) {
+                    com.example.util.AppLogger.w("MusicViewModel", "Failed to delete song ${song.title}", e)
+                }
+            }
+            com.example.util.AppLogger.i("MusicViewModel", "Deleted ${selected.size} selected songs")
+        }
+        clearSelection()
     }
 
     override fun onCleared() {

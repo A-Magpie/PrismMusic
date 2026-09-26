@@ -48,6 +48,41 @@ object WidgetUpdateHelper {
         position: Long,
         duration: Long
     ) {
+        if (currentSong == null) {
+            CoroutineScope(Dispatchers.IO).launch {
+                var loadedSong: Song? = null
+                var loadedPos = 0L
+                try {
+                    val db = AppDatabase.getInstance(context)
+                    val state = db.playbackStateDao().getPlaybackStateSync()
+                    if (state?.currentSongId != null) {
+                        loadedSong = db.songDao().getSongById(state.currentSongId)
+                        loadedPos = state.currentPosition
+                    }
+                } catch (_: Exception) {}
+
+                renderWidgets(
+                    context = context,
+                    currentSong = loadedSong,
+                    nextSong = nextSong,
+                    isPlaying = false,
+                    position = loadedPos,
+                    duration = loadedSong?.duration ?: 0L
+                )
+            }
+        } else {
+            renderWidgets(context, currentSong, nextSong, isPlaying, position, duration)
+        }
+    }
+
+    private fun renderWidgets(
+        context: Context,
+        currentSong: Song?,
+        nextSong: Song?,
+        isPlaying: Boolean,
+        position: Long,
+        duration: Long
+    ) {
         val appWidgetManager = AppWidgetManager.getInstance(context) ?: return
         val componentName = ComponentName(context, MusicWidgetProvider::class.java)
         val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName) ?: return

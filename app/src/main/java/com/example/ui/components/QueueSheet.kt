@@ -106,66 +106,78 @@ fun QueueSheet(
 
     var showSavePlaylistDialog by remember { mutableStateOf(false) }
 
-    // Drag-and-drop state with real-time incremental swapping
-    var draggedIndex by remember { mutableStateOf<Int?>(null) }
-    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    // Item height & LazyList state
     val itemHeight = 60.dp
     val itemHeightPx = with(LocalDensity.current) { itemHeight.toPx() }
-
     val listState = rememberLazyListState()
 
-    // Stable tracking tokens per slot that swap with real-time reordering
-    val itemTokens = remember { mutableStateListOf<Long>() }
-    LaunchedEffect(queue.size) {
-        if (draggedIndex == null || itemTokens.size != queue.size) {
-            itemTokens.clear()
-            itemTokens.addAll(queue.mapIndexed { idx, s -> s.id * 31L + idx })
+    // Professional drag-and-drop state: zero IPC/DB hits while dragging, commit on release
+    var isDraggingActive by remember { mutableStateOf(false) }
+    var draggingSongKey by remember { mutableStateOf<Long?>(null) }
+    var draggingFromIndex by remember { mutableStateOf<Int?>(null) }
+    var currentTargetIndex by remember { mutableStateOf<Int?>(null) }
+    var totalDragDistanceY by remember { mutableFloatStateOf(0f) }
+
+    var nextKey by remember { mutableStateOf(0L) }
+    val localQueue = remember { mutableStateListOf<QueueEntry>() }
+
+    // Synchronize local list from ViewModel queue when not dragging
+    LaunchedEffect(queue, isDraggingActive) {
+        if (!isDraggingActive) {
+            val newEntries = mutableListOf<QueueEntry>()
+            val existingMap = localQueue.groupBy { it.song.id }.mapValues { it.value.toMutableList() }
+            for (song in queue) {
+                val reusable = existingMap[song.id]?.removeFirstOrNull()
+                if (reusable != null) {
+                    newEntries.add(reusable.copy(song = song))
+                } else {
+                    newEntries.add(QueueEntry(stableKey = ++nextKey, song = song))
+                }
+            }
+            localQueue.clear()
+            localQueue.addAll(newEntries)
         }
     }
 
-    // Edge auto-scroll tracking that keeps the dragged item perfectly locked to the finger
-    val currentDragOffsetY by androidx.compose.runtime.rememberUpdatedState(dragOffsetY)
-    val currentDraggedIdx by androidx.compose.runtime.rememberUpdatedState(draggedIndex)
-    LaunchedEffect(draggedIndex != null) {
-        if (draggedIndex != null) {
-            while (isActive && currentDraggedIdx != null) {
-                val from = currentDraggedIdx ?: break
-                val offset = currentDragOffsetY
-                val threshold = itemHeightPx * 0.5f
+    // Edge auto-scroll during drag: smoothly scrolls list and recalculates target slot
+    val currentIsDragging by rememberUpdatedState(isDraggingActive)
+    val currentDraggingFrom by rememberUpdatedState(draggingFromIndex)
+    val currentTarget by rememberUpdatedState(currentTargetIndex)
 
-                if (offset < -30f && from > 0) {
-                    val scrollDelta = -14f
-                    listState.scrollBy(scrollDelta)
-                    dragOffsetY -= scrollDelta
-                    if (dragOffsetY < -threshold && from > 0) {
-                        val to = from - 1
-                        if (from in itemTokens.indices && to in itemTokens.indices) {
-                            val temp = itemTokens[from]
-                            itemTokens[from] = itemTokens[to]
-                            itemTokens[to] = temp
-                        }
-                        viewModel.reorderQueue(from, to)
-                        draggedIndex = to
-                        dragOffsetY += itemHeightPx
-                    }
-                } else if (offset > 30f && from < queue.size - 1) {
-                    val scrollDelta = 14f
-                    listState.scrollBy(scrollDelta)
-                    dragOffsetY -= scrollDelta
-                    if (dragOffsetY > threshold && from < queue.size - 1) {
-                        val to = from + 1
-                        if (from in itemTokens.indices && to in itemTokens.indices) {
-                            val temp = itemTokens[from]
-                            itemTokens[from] = itemTokens[to]
-                            itemTokens[to] = temp
-                        }
-                        viewModel.reorderQueue(from, to)
-                        draggedIndex = to
-                        dragOffsetY -= itemHeightPx
-                    }
+    LaunchedEffect(isDraggingActive) {
+        if (!isDraggingActive) return@LaunchedEffect
+        while (isActive && currentIsDragging) {
+            val fromIdx = currentDraggingFrom ?: break
+            val targetIdx = currentTarget ?: break
+            val firstVisible = listState.firstVisibleItemIndex
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+
+            if (targetIdx <= firstVisible + 1 && targetIdx > 0) {
+                val scrollDelta = -14f
+                listState.scrollBy(scrollDelta)
+                totalDragDistanceY += scrollDelta
+                val slotDelta = (totalDragDistanceY / itemHeightPx).roundToInt()
+                val newTarget = (fromIdx + slotDelta).coerceIn(0, localQueue.size - 1)
+                val cur = currentTargetIndex ?: fromIdx
+                if (newTarget != cur && newTarget in localQueue.indices && cur in localQueue.indices) {
+                    val moved = localQueue.removeAt(cur)
+                    localQueue.add(newTarget, moved)
+                    currentTargetIndex = newTarget
                 }
-                delay(20)
+            } else if (targetIdx >= lastVisible - 1 && targetIdx < localQueue.size - 1) {
+                val scrollDelta = 14f
+                listState.scrollBy(scrollDelta)
+                totalDragDistanceY += scrollDelta
+                val slotDelta = (totalDragDistanceY / itemHeightPx).roundToInt()
+                val newTarget = (fromIdx + slotDelta).coerceIn(0, localQueue.size - 1)
+                val cur = currentTargetIndex ?: fromIdx
+                if (newTarget != cur && newTarget in localQueue.indices && cur in localQueue.indices) {
+                    val moved = localQueue.removeAt(cur)
+                    localQueue.add(newTarget, moved)
+                    currentTargetIndex = newTarget
+                }
             }
+            delay(18)
         }
     }
 
@@ -198,7 +210,7 @@ fun QueueSheet(
                 .pointerInput(Unit) {
                     detectDragGestures(
                         onDrag = { change, dragAmount ->
-                            if (draggedIndex == null && (dragAmount.y > 0 || sheetDragY.value > 0)) {
+                            if (!isDraggingActive && (dragAmount.y > 0 || sheetDragY.value > 0)) {
                                 if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
                                     change.consume()
                                     coroutineScope.launch {
@@ -332,7 +344,7 @@ fun QueueSheet(
                     }
                 }
 
-                if (queue.isEmpty()) {
+                if (localQueue.isEmpty()) {
                     Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                         Text("Queue is empty", color = TextMuted, fontSize = 16.sp)
                     }
@@ -345,57 +357,64 @@ fun QueueSheet(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         itemsIndexed(
-                            items = queue,
-                            key = { index, song ->
-                                if (index in itemTokens.indices) itemTokens[index] else (song.id * 31L + index)
-                            }
-                        ) { index, song ->
-                            val isBeingDragged = (draggedIndex == index)
+                            items = localQueue,
+                            key = { _, entry -> entry.stableKey }
+                        ) { index, entry ->
+                            val song = entry.song
+                            val isBeingDragged = (draggingSongKey == entry.stableKey)
+                            val visualOffsetY = if (isBeingDragged && draggingFromIndex != null && currentTargetIndex != null) {
+                                totalDragDistanceY - (currentTargetIndex!! - draggingFromIndex!!) * itemHeightPx
+                            } else 0f
 
                             QueueItemRow(
                                 song = song,
                                 index = index,
                                 currentIndex = currentIndex,
-                                queueSize = queue.size,
-                                isPlaying = (index == currentIndex && currentSong?.id == song.id),
+                                queueSize = localQueue.size,
+                                isPlaying = (currentSong?.id == song.id),
                                 isDragged = isBeingDragged,
                                 accentColor = dynamicAccent,
-                                dragOffsetY = if (isBeingDragged) dragOffsetY else 0f,
-                                onPlay = { viewModel.playQueueIndex(index) },
-                                onRemove = { viewModel.removeFromQueue(index) },
+                                dragOffsetY = visualOffsetY,
+                                onPlay = {
+                                    val realIdx = queue.indexOfFirst { it.id == song.id }
+                                    if (realIdx >= 0) viewModel.playQueueIndex(realIdx)
+                                    else viewModel.playQueueIndex(index)
+                                },
+                                onRemove = {
+                                    val realIdx = queue.indexOfFirst { it.id == song.id }
+                                    if (realIdx >= 0) viewModel.removeFromQueue(realIdx)
+                                    else viewModel.removeFromQueue(index)
+                                },
                                 onDragStart = {
-                                    draggedIndex = index
-                                    dragOffsetY = 0f
+                                    isDraggingActive = true
+                                    draggingSongKey = entry.stableKey
+                                    draggingFromIndex = index
+                                    currentTargetIndex = index
+                                    totalDragDistanceY = 0f
                                 },
                                 onDrag = { deltaY ->
-                                    dragOffsetY += deltaY
-                                    val from = draggedIndex ?: return@QueueItemRow
-                                    val threshold = itemHeightPx * 0.5f
-                                    if (dragOffsetY > threshold && from < queue.size - 1) {
-                                        val to = from + 1
-                                        if (from in itemTokens.indices && to in itemTokens.indices) {
-                                            val temp = itemTokens[from]
-                                            itemTokens[from] = itemTokens[to]
-                                            itemTokens[to] = temp
-                                        }
-                                        viewModel.reorderQueue(from, to)
-                                        draggedIndex = to
-                                        dragOffsetY -= itemHeightPx
-                                    } else if (dragOffsetY < -threshold && from > 0) {
-                                        val to = from - 1
-                                        if (from in itemTokens.indices && to in itemTokens.indices) {
-                                            val temp = itemTokens[from]
-                                            itemTokens[from] = itemTokens[to]
-                                            itemTokens[to] = temp
-                                        }
-                                        viewModel.reorderQueue(from, to)
-                                        draggedIndex = to
-                                        dragOffsetY += itemHeightPx
+                                    totalDragDistanceY += deltaY
+                                    val from = draggingFromIndex ?: return@QueueItemRow
+                                    val slotDelta = (totalDragDistanceY / itemHeightPx).roundToInt()
+                                    val target = (from + slotDelta).coerceIn(0, localQueue.size - 1)
+                                    val cur = currentTargetIndex ?: from
+                                    if (target != cur && target in localQueue.indices && cur in localQueue.indices) {
+                                        val moved = localQueue.removeAt(cur)
+                                        localQueue.add(target, moved)
+                                        currentTargetIndex = target
                                     }
                                 },
                                 onDragEnd = {
-                                    draggedIndex = null
-                                    dragOffsetY = 0f
+                                    val from = draggingFromIndex
+                                    val to = currentTargetIndex
+                                    if (from != null && to != null && from != to) {
+                                        viewModel.reorderQueue(from, to)
+                                    }
+                                    isDraggingActive = false
+                                    draggingSongKey = null
+                                    draggingFromIndex = null
+                                    currentTargetIndex = null
+                                    totalDragDistanceY = 0f
                                 }
                             )
                         }
@@ -491,7 +510,7 @@ private fun QueueItemRow(
     val currentOnDragEnd by rememberUpdatedState(onDragEnd)
 
     val isPlayed = index < currentIndex
-    val isCurrent = (index == currentIndex)
+    val isCurrent = isPlaying || (index == currentIndex)
     val itemAlpha = when {
         isDragged -> 1f
         isCurrent -> 1f
@@ -507,6 +526,7 @@ private fun QueueItemRow(
             .scale(if (isDragged) 1.03f else 1.0f)
             .graphicsLayer {
                 alpha = itemAlpha
+                shadowElevation = if (isDragged) 16.dp.toPx() else 0f
             }
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
@@ -525,7 +545,7 @@ private fun QueueItemRow(
             .glassmorphic(
                 shape = RoundedCornerShape(12.dp),
                 backgroundColor = when {
-                    isDragged -> DarkCardGlass.copy(alpha = 0.95f)
+                    isDragged -> DarkCardGlass.copy(alpha = 0.98f)
                     isCurrent -> accentColor.copy(alpha = 0.22f)
                     isPlayed -> DarkCardGlass.copy(alpha = 0.35f)
                     else -> DarkCardGlass
@@ -558,7 +578,8 @@ private fun QueueItemRow(
                             onDragEnd = { currentOnDragEnd() },
                             onDragCancel = { currentOnDragEnd() }
                         )
-                    },
+                    }
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -642,3 +663,8 @@ private fun QueueItemRow(
         }
     }
 }
+
+private data class QueueEntry(
+    val stableKey: Long,
+    val song: Song
+)

@@ -274,6 +274,21 @@ fun NowPlayingScreen(
             }
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
+        // Top ambient color gradient from album art dynamic palette
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(200.dp)
+                .background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        listOf(
+                            dynamicAccent.copy(alpha = 0.32f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -427,6 +442,9 @@ fun NowPlayingScreen(
                             fontSizeSetting = lyricsFontSize,
                             accentColor = dynamicAccent,
                             onFontSizeChange = { viewModel.lyricsFontSize.value = it },
+                            onSaveLyrics = { newLyrics ->
+                                currentSong?.let { viewModel.updateSongLyrics(it.id, newLyrics) }
+                            },
                             onClose = { viewModel.showLyrics.value = false }
                         )
                     }
@@ -734,13 +752,16 @@ private fun LyricsOverlay(
     fontSizeSetting: String,
     accentColor: Color = AccentCyan,
     onFontSizeChange: (String) -> Unit,
+    onSaveLyrics: (String) -> Unit,
     onClose: () -> Unit
 ) {
-    var menuExpanded by remember { mutableStateOf(false) }
+    var showEditLyricsDialog by remember { mutableStateOf(false) }
+    var editedLyricsText by remember(lyrics) { mutableStateOf(lyrics) }
 
     val baseFontSize = when (fontSizeSetting) {
         "SMALL" -> 14.sp
-        "LARGE" -> 22.sp
+        "LARGE" -> 21.sp
+        "EXTRA_LARGE" -> 26.sp
         else -> 17.sp // MEDIUM
     }
 
@@ -751,52 +772,132 @@ private fun LyricsOverlay(
             .background(Color(0xEE080810))
             .padding(16.dp)
     ) {
-        // 3-dot menu top-right for font size options
+        // Top ambient color gradient
         Box(
             modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+                .align(Alignment.TopCenter)
+                .background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        listOf(
+                            accentColor.copy(alpha = 0.32f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+
+        // Actions top-right: Edit Lyrics button and Font Size cycle button below it
+        Column(
+            modifier = Modifier
                 .align(Alignment.TopEnd)
+                .padding(end = 4.dp, top = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            IconButton(onClick = { menuExpanded = true }) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "Lyrics Options",
-                    tint = TextWhite
-                )
-            }
-            DropdownMenu(
-                expanded = menuExpanded,
-                onDismissRequest = { menuExpanded = false },
-                modifier = Modifier.background(DarkCardGlass)
+            // Edit Lyrics Button
+            IconButton(
+                onClick = {
+                    editedLyricsText = lyrics
+                    showEditLyricsDialog = true
+                },
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(Color(0x33FFFFFF), CircleShape)
             ) {
-                DropdownMenuItem(
-                    text = { Text("Font: Small", color = TextWhite) },
-                    onClick = {
-                        onFontSizeChange("SMALL")
-                        menuExpanded = false
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text("Font: Medium", color = TextWhite) },
-                    onClick = {
-                        onFontSizeChange("MEDIUM")
-                        menuExpanded = false
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text("Font: Large", color = TextWhite) },
-                    onClick = {
-                        onFontSizeChange("LARGE")
-                        menuExpanded = false
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text("Close Lyrics", color = accentColor) },
-                    onClick = {
-                        menuExpanded = false
-                        onClose()
-                    }
+                Icon(
+                    imageVector = Icons.Rounded.Edit,
+                    contentDescription = "Edit Lyrics",
+                    tint = TextWhite,
+                    modifier = Modifier.size(18.dp)
                 )
             }
+
+            // Font Size Cycle Button
+            IconButton(
+                onClick = {
+                    val nextSize = when (fontSizeSetting) {
+                        "SMALL" -> "MEDIUM"
+                        "MEDIUM" -> "LARGE"
+                        "LARGE" -> "EXTRA_LARGE"
+                        else -> "SMALL"
+                    }
+                    onFontSizeChange(nextSize)
+                },
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(Color(0x33FFFFFF), CircleShape)
+            ) {
+                Text(
+                    text = when (fontSizeSetting) {
+                        "SMALL" -> "S"
+                        "MEDIUM" -> "M"
+                        "LARGE" -> "L"
+                        "EXTRA_LARGE" -> "XL"
+                        else -> "M"
+                    },
+                    color = accentColor,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
+                )
+            }
+        }
+
+        // Edit Lyrics Dialog
+        if (showEditLyricsDialog) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showEditLyricsDialog = false },
+                containerColor = DarkCardGlass,
+                shape = RoundedCornerShape(16.dp),
+                title = {
+                    Text(
+                        text = "Edit Lyrics",
+                        color = TextWhite,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Edit or paste lyrics below (supports plain text or [mm:ss.xx] timestamps):",
+                            color = TextMuted,
+                            fontSize = 12.sp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        androidx.compose.material3.OutlinedTextField(
+                            value = editedLyricsText,
+                            onValueChange = { editedLyricsText = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(260.dp),
+                            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = TextWhite,
+                                unfocusedTextColor = TextWhite,
+                                focusedBorderColor = accentColor,
+                                unfocusedBorderColor = GlassBorder
+                            )
+                        )
+                    }
+                },
+                confirmButton = {
+                    androidx.compose.material3.Button(
+                        onClick = {
+                            onSaveLyrics(editedLyricsText.trim())
+                            showEditLyricsDialog = false
+                        },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = accentColor)
+                    ) {
+                        Text("Save", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showEditLyricsDialog = false }) {
+                        Text("Cancel", color = TextMuted)
+                    }
+                }
+            )
         }
 
         // Lyrics Text Content (Synced or Static, center-aligned over cover)

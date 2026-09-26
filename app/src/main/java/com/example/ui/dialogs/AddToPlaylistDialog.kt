@@ -146,3 +146,112 @@ fun AddToPlaylistDialog(
         }
     )
 }
+
+@Composable
+fun AddToPlaylistBatchDialog(
+    songs: List<Song>,
+    viewModel: MusicViewModel,
+    onDismiss: () -> Unit
+) {
+    val playlists by viewModel.allPlaylists.collectAsState()
+    val dynamicAccent by viewModel.dynamicAccentColor.collectAsState()
+    var isCreatingNew by remember { mutableStateOf(false) }
+    var newPlaylistName by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF141416),
+        title = {
+            Text(
+                text = "Add ${songs.size} Songs to Playlist",
+                color = TextWhite,
+                fontSize = 18.sp
+            )
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "${songs.size} tracks selected",
+                    color = dynamicAccent,
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (isCreatingNew) {
+                    OutlinedTextField(
+                        value = newPlaylistName,
+                        onValueChange = { newPlaylistName = it },
+                        label = { Text("Playlist Name", color = TextMuted) },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = dynamicAccent,
+                            unfocusedBorderColor = DarkSurfaceElevated,
+                            focusedTextColor = TextWhite,
+                            unfocusedTextColor = TextWhite
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            if (newPlaylistName.isNotBlank()) {
+                                viewModel.createPlaylist(newPlaylistName.trim())
+                                val created = playlists.firstOrNull { it.name == newPlaylistName.trim() }
+                                if (created != null) {
+                                    viewModel.addSelectedSongsToPlaylist(created.id, songs)
+                                }
+                                onDismiss()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = dynamicAccent),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Create & Add", color = Color.Black)
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isCreatingNew = true }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = dynamicAccent)
+                        Text("Create New Playlist", color = dynamicAccent, fontSize = 14.sp)
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (playlists.isEmpty()) {
+                        Text("No playlists yet", color = TextMuted, fontSize = 13.sp)
+                    } else {
+                        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                            items(playlists) { playlist ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            viewModel.addSelectedSongsToPlaylist(playlist.id, songs)
+                                            onDismiss()
+                                        }
+                                        .padding(vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Icon(Icons.Default.PlaylistPlay, contentDescription = null, tint = TextWhite)
+                                    Text(playlist.name, color = TextWhite, fontSize = 15.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = TextMuted)
+            }
+        }
+    )
+}

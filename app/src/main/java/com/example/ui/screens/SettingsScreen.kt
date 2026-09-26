@@ -33,6 +33,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Folder
@@ -46,6 +48,7 @@ import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import com.example.util.AppLogger
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -122,6 +125,10 @@ fun SettingsScreen(
     var lockDisableSeekbar by remember(current.lockDisableSeekbar) { mutableStateOf(current.lockDisableSeekbar) }
     var lockDisablePrevNext by remember(current.lockDisablePrevNext) { mutableStateOf(current.lockDisablePrevNext) }
     var lockDisablePlayPause by remember(current.lockDisablePlayPause) { mutableStateOf(current.lockDisablePlayPause) }
+
+    var showClearConfirmDialog by remember { mutableStateOf(false) }
+    var showLogViewerDialog by remember { mutableStateOf(false) }
+    var logContentText by remember { mutableStateOf("") }
 
     // Folder picker launcher (Manual Folder Selection)
     val folderPickerLauncher = rememberLauncherForActivityResult(
@@ -821,8 +828,181 @@ fun SettingsScreen(
                     }
                 }
 
+                // CATEGORY: Diagnostics & System Logging
+                val isLoggingEnabled by AppLogger.isLoggingEnabled.collectAsState()
+                var showLogViewerDialog by remember { mutableStateOf(false) }
+                var logContentText by remember { mutableStateOf("") }
+                var showClearConfirmDialog by remember { mutableStateOf(false) }
+
+                SettingsCategoryCard(
+                    title = "Diagnostics & App Logging",
+                    icon = Icons.Default.BugReport,
+                    accentColor = dynamicAccent
+                ) {
+                    Text(
+                        text = "Record detailed app events, player state, background scanner, and unexpected errors to internal storage for troubleshooting.",
+                        color = TextMuted,
+                        fontSize = 12.sp
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Enable App Logging", color = TextWhite, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text(if (isLoggingEnabled) "Logging active to internal file" else "Logging is currently disabled", color = TextMuted, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = isLoggingEnabled,
+                            onCheckedChange = { AppLogger.setLoggingEnabled(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.Black,
+                                checkedTrackColor = dynamicAccent
+                            )
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                logContentText = AppLogger.getLogText(context, 1000)
+                                showLogViewerDialog = true
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("View Logs", color = TextWhite, fontSize = 12.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                val logFile = AppLogger.getLogFile(context)
+                                if (logFile != null && logFile.exists()) {
+                                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                                        context,
+                                        "${context.packageName}.fileprovider",
+                                        logFile
+                                    )
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Share Prism Music Logs"))
+                                } else {
+                                    val text = AppLogger.getLogText(context, 500)
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, text)
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Share Prism Music Logs"))
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = dynamicAccent)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Export", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = { showClearConfirmDialog = true },
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Clear", tint = AccentRed, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(24.dp))
             }
+        }
+
+        // We handle dialogs below
+        if (showClearConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showClearConfirmDialog = false },
+                containerColor = DarkCardGlass,
+                shape = RoundedCornerShape(16.dp),
+                title = { Text("Clear All Logs?", color = TextWhite, fontWeight = FontWeight.Bold) },
+                text = { Text("This will permanently delete saved debug and error log records from this device.", color = TextMuted, fontSize = 13.sp) },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            AppLogger.clearLogs(context)
+                            showClearConfirmDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
+                    ) {
+                        Text("Clear", color = TextWhite, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showClearConfirmDialog = false }) {
+                        Text("Cancel", color = TextWhite)
+                    }
+                }
+            )
+        }
+
+        if (showLogViewerDialog) {
+            AlertDialog(
+                onDismissRequest = { showLogViewerDialog = false },
+                containerColor = DarkCardGlass,
+                shape = RoundedCornerShape(16.dp),
+                title = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("App Logs", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        IconButton(onClick = {
+                            logContentText = AppLogger.getLogText(context, 1000)
+                        }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = dynamicAccent)
+                        }
+                    }
+                },
+                text = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(380.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF0D0D10))
+                            .padding(10.dp)
+                    ) {
+                        val logScrollState = rememberScrollState()
+                        Text(
+                            text = logContentText.ifBlank { "Log is currently empty." },
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            modifier = Modifier.verticalScroll(logScrollState)
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { showLogViewerDialog = false },
+                        colors = ButtonDefaults.buttonColors(containerColor = dynamicAccent)
+                    ) {
+                        Text("Close", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+            )
         }
 
         if (scanSummary != null) {

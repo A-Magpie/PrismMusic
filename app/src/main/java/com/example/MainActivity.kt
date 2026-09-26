@@ -101,6 +101,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.util.AppLogger.init(applicationContext)
+        com.example.util.AppLogger.i("MainActivity", "App onCreate called")
         enableEdgeToEdge()
 
         setContent {
@@ -247,6 +249,21 @@ fun MainApp(
                 .fillMaxSize()
                 .background(AmoledBlack)
         ) {
+            // Ambient Top Color Gradient
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(110.dp)
+                    .background(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            listOf(
+                                dynamicAccent.copy(alpha = 0.22f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+
             val blurModifier = if (isAnyDialogOpen && dialogBlurRadius > 0f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 Modifier.blur(dialogBlurRadius.dp)
             } else Modifier
@@ -310,8 +327,8 @@ fun MainApp(
                         Text(
                             text = "Prism music",
                             color = TextWhite,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontSize = 25.sp,
+                            fontWeight = FontWeight.ExtraBold,
                             letterSpacing = 0.5.sp
                         )
                         IconButton(
