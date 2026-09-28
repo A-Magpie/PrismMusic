@@ -355,25 +355,81 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun autoScanAndImportAllPlaylists() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val root = android.os.Environment.getExternalStorageDirectory()
-                val m3uFiles = mutableListOf<java.io.File>()
-                if (root.exists() && root.canRead()) {
-                    root.walkTopDown().maxDepth(8).forEach { file ->
-                        if (file.isFile && (file.extension.equals("m3u", ignoreCase = true) || file.extension.equals("m3u8", ignoreCase = true))) {
-                            m3uFiles.add(file)
+                com.example.util.AppLogger.i("MusicViewModel", "Starting auto-scan for M3U playlists across storage & MediaStore")
+                val context = getApplication<Application>()
+                val scannedUris = mutableSetOf<android.net.Uri>()
+
+                // 1. Query MediaStore for .m3u and .m3u8 files
+                try {
+                    val projection = arrayOf(
+                        android.provider.MediaStore.Files.FileColumns._ID,
+                        android.provider.MediaStore.Files.FileColumns.DATA
+                    )
+                    val selection = "${android.provider.MediaStore.Files.FileColumns.DATA} LIKE '%.m3u' OR ${android.provider.MediaStore.Files.FileColumns.DATA} LIKE '%.m3u8'"
+                    context.contentResolver.query(
+                        android.provider.MediaStore.Files.getContentUri("external"),
+                        projection,
+                        selection,
+                        null,
+                        null
+                    )?.use { cursor ->
+                        val idCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Files.FileColumns._ID)
+                        while (cursor.moveToNext()) {
+                            val id = cursor.getLong(idCol)
+                            val uri = android.content.ContentUris.withAppendedId(
+                                android.provider.MediaStore.Files.getContentUri("external"),
+                                id
+                            )
+                            scannedUris.add(uri)
+                        }
+                    }
+                } catch (e: Exception) {
+                    com.example.util.AppLogger.w("MusicViewModel", "MediaStore M3U query failed", e)
+                }
+
+                // 2. Safely scan target directories (Music, Download, Documents, Playlists) with onFail handler
+                val targetDirs = listOfNotNull(
+                    android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC),
+                    android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                    android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS),
+                    java.io.File(android.os.Environment.getExternalStorageDirectory(), "Playlists"),
+                    java.io.File(android.os.Environment.getExternalStorageDirectory(), "Music")
+                ).distinct()
+
+                for (dir in targetDirs) {
+                    if (dir.exists() && dir.canRead()) {
+                        try {
+                            dir.walkTopDown()
+                                .maxDepth(6)
+                                .onEnter { subDir ->
+                                    !subDir.name.startsWith(".") && !subDir.name.equals("Android", ignoreCase = true)
+                                }
+                                .onFail { _, _ -> /* Ignore unreadable directories without throwing */ }
+                                .forEach { file ->
+                                    if (file.isFile && (file.extension.equals("m3u", ignoreCase = true) || file.extension.equals("m3u8", ignoreCase = true))) {
+                                        scannedUris.add(android.net.Uri.fromFile(file))
+                                    }
+                                }
+                        } catch (e: Exception) {
+                            com.example.util.AppLogger.w("MusicViewModel", "Directory walk skipped for ${dir.path}", e)
                         }
                     }
                 }
+
                 var count = 0
-                for (f in m3uFiles) {
+                for (uri in scannedUris) {
                     try {
-                        importM3uPlaylist(android.net.Uri.fromFile(f))
+                        importM3uPlaylist(uri)
                         count++
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        com.example.util.AppLogger.w("MusicViewModel", "Failed to import M3U from $uri", e)
+                    }
                 }
                 m3uImportMessage.value = "Auto-scanned device: Imported $count playlist(s)"
+                com.example.util.AppLogger.i("MusicViewModel", "Auto-scan finished: Imported $count playlist(s)")
             } catch (e: Exception) {
                 m3uImportMessage.value = "Playlist auto-scan failed: ${e.message}"
+                com.example.util.AppLogger.e("MusicViewModel", "Playlist auto-scan fatal error", e)
             }
         }
     }
@@ -715,6 +771,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         _queue.value = service?.queue?.toList() ?: emptyList()
     }
 
+    fun shufflePlaySongs(songs: List<Song>) {
+        if (songs.isEmpty()) return
+        val randomIdx = kotlin.random.Random.nextInt(songs.size)
+        com.example.util.AppLogger.i("MusicViewModel", "shufflePlaySongs: total=${songs.size}, startingIndex=$randomIdx ('${songs[randomIdx].title}')")
+        service?.setQueueWithShuffle(songs, startIndex = randomIdx, playImmediately = true)
+        _shuffleEnabled.value = true
+        _currentSong.value = service?.currentSong ?: songs[randomIdx]
+        _isPlaying.value = true
+        _queue.value = service?.queue?.toList() ?: songs
+    }
+
     fun playNextInQueue(song: Song) {
         service?.playNextInQueue(song)
     }
@@ -751,6 +818,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         service?.removeFromQueue(index)
     }
 
+    fun removeFromQueue(songId: Long) {
+        service?.removeFromQueue(songId)
+        _queue.value = service?.queue?.toList() ?: _queue.value.filter { it.id != songId }
+    }
+
     fun playQueueIndex(index: Int) {
         service?.playQueueIndex(index)
     }
@@ -768,10 +840,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteSong(song: Song) {
         viewModelScope.launch(Dispatchers.IO) {
+            com.example.util.AppLogger.i("MusicViewModel", "deleteSong requested for: '${song.title}' (${song.path})")
             if (_currentSong.value?.id == song.id) {
                 playNext()
             }
-            repository.deleteSong(song.id)
+            service?.removeFromQueue(song.id)
+            val physicalDeleted = repository.deleteSong(song.id)
+            _queue.value = service?.queue?.toList() ?: _queue.value.filter { it.id != song.id }
+            com.example.util.AppLogger.i("MusicViewModel", "deleteSong completed for '${song.title}': physicalFileDeleted=$physicalDeleted")
         }
     }
 
@@ -1039,6 +1115,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch(Dispatchers.IO) {
             var extractedColor: Color? = null
+            var hasCoverArt = false
             val context = getApplication<Application>()
 
             // 1. Android 10+ (API 29+) MediaStore thumbnail from song.uri
@@ -1049,12 +1126,13 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         android.util.Size(256, 256),
                         null
                     )
+                    hasCoverArt = true
                     extractedColor = findDominantVibrantColor(bitmap)
                 } catch (_: Exception) {}
             }
 
             // 2. MediaMetadataRetriever embedded picture from song.uri
-            if (extractedColor == null && song.uri.isNotBlank()) {
+            if (!hasCoverArt && song.uri.isNotBlank()) {
                 try {
                     val mmr = android.media.MediaMetadataRetriever()
                     mmr.setDataSource(context, Uri.parse(song.uri))
@@ -1063,6 +1141,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     if (artBytes != null) {
                         val bitmap = BitmapFactory.decodeByteArray(artBytes, 0, artBytes.size)
                         if (bitmap != null) {
+                            hasCoverArt = true
                             extractedColor = findDominantVibrantColor(bitmap)
                         }
                     }
@@ -1070,7 +1149,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             // 3. openInputStream on albumArtUri if available
-            if (extractedColor == null && !song.albumArtUri.isNullOrBlank()) {
+            if (!hasCoverArt && !song.albumArtUri.isNullOrBlank()) {
                 try {
                     val uri = Uri.parse(song.albumArtUri)
                     context.contentResolver.openInputStream(uri)?.use { stream ->
@@ -1079,18 +1158,24 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         val bitmap = BitmapFactory.decodeStream(stream, null, options)
                         if (bitmap != null) {
+                            hasCoverArt = true
                             extractedColor = findDominantVibrantColor(bitmap)
                         }
                     }
                 } catch (_: Exception) {}
             }
 
-            // 4. Vibrant fallback: If no cover art exists, generate a deterministic beautiful vibrant color based on song/album
-            if (extractedColor == null) {
-                val seed = (song.album.ifEmpty { song.artist } + song.title).hashCode()
-                val hue = kotlin.math.abs(seed % 360).toFloat()
-                val rgb = android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.78f, 0.92f))
-                extractedColor = Color(rgb)
+            // 4. Fallback: If no cover art exists at all, generate a deterministic pleasant color based on song
+            if (!hasCoverArt || extractedColor == null) {
+                if (!hasCoverArt) {
+                    val seed = (song.album.ifEmpty { song.artist } + song.title).hashCode()
+                    val hue = kotlin.math.abs(seed % 360).toFloat()
+                    val rgb = android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.75f, 0.90f))
+                    extractedColor = Color(rgb)
+                } else {
+                    // Cover art was present but completely monochrome
+                    extractedColor = Color(0xFFE2E8F0)
+                }
             }
 
             _dynamicAccentColor.value = extractedColor ?: AccentGray
@@ -1100,38 +1185,80 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private fun findDominantVibrantColor(bitmap: Bitmap): Color? {
         val width = bitmap.width
         val height = bitmap.height
-        val stepX = maxOf(1, width / 24)
-        val stepY = maxOf(1, height / 24)
+        val stepX = maxOf(1, width / 28)
+        val stepY = maxOf(1, height / 28)
         val hsv = FloatArray(3)
 
-        var bestColor: Color? = null
-        var maxScore = -1f
+        // 12 hue bins (0..360, 30 deg each)
+        val binScores = FloatArray(12) { 0f }
+        val binHueSums = FloatArray(12) { 0f }
+        val binSatSums = FloatArray(12) { 0f }
+        val binValSums = FloatArray(12) { 0f }
+        val binCounts = IntArray(12) { 0 }
+
+        var totalSamples = 0
+        var colorfulSamples = 0
+        var totalSatSum = 0f
 
         for (x in 0 until width step stepX) {
             for (y in 0 until height step stepY) {
                 val pixel = bitmap.getPixel(x, y)
+                // Skip fully transparent
+                if ((pixel ushr 24) < 128) continue
+
+                totalSamples++
                 android.graphics.Color.colorToHSV(pixel, hsv)
                 val hue = hsv[0]
                 val sat = hsv[1]
                 val value = hsv[2]
 
-                // Filter out non-colors: very dark, pure white, or washed out gray
-                if (value < 0.22f || (value > 0.95f && sat < 0.15f) || sat < 0.20f) {
-                    continue
-                }
+                totalSatSum += sat
 
-                // Balance saturation and pleasing brightness
-                val score = sat * 2.0f + (1.0f - kotlin.math.abs(value - 0.75f))
-                if (score > maxScore) {
-                    maxScore = score
-                    val finalValue = value.coerceIn(0.68f, 0.95f)
-                    val finalSat = sat.coerceIn(0.55f, 1.0f)
-                    val rgb = android.graphics.Color.HSVToColor(floatArrayOf(hue, finalSat, finalValue))
-                    bestColor = Color(rgb)
+                // Check if pixel has discernible color
+                if (sat >= 0.22f && value in 0.18f..0.96f) {
+                    colorfulSamples++
+                    val binIndex = ((hue / 30f).toInt() % 12).coerceIn(0, 11)
+                    val weight = (sat * sat * 2.0f) * (1.0f - kotlin.math.abs(value - 0.70f))
+                    binScores[binIndex] += weight
+                    binHueSums[binIndex] += hue
+                    binSatSums[binIndex] += sat
+                    binValSums[binIndex] += value
+                    binCounts[binIndex]++
                 }
             }
         }
-        return bestColor
+
+        if (totalSamples == 0) return null
+
+        // If less than 6% of pixels have color, or average saturation is negligible, it's a black-and-white / monochrome cover
+        val colorRatio = colorfulSamples.toFloat() / totalSamples.toFloat()
+        val avgSat = totalSatSum / totalSamples.toFloat()
+        if (colorRatio < 0.06f || avgSat < 0.12f) {
+            // Elegant crisp silver-white accent for monochrome / B&W album covers
+            return Color(0xFFE2E8F0)
+        }
+
+        // Find the most prominent hue bin
+        var bestBin = -1
+        var maxScore = 0f
+        for (i in 0 until 12) {
+            if (binScores[i] > maxScore && binCounts[i] >= 3) {
+                maxScore = binScores[i]
+                bestBin = i
+            }
+        }
+
+        if (bestBin == -1 || binCounts[bestBin] == 0) {
+            return Color(0xFFE2E8F0)
+        }
+
+        val count = binCounts[bestBin].toFloat()
+        val avgHue = binHueSums[bestBin] / count
+        val avgVal = (binValSums[bestBin] / count).coerceIn(0.72f, 0.95f)
+        val finalSat = (binSatSums[bestBin] / count).coerceIn(0.55f, 0.95f)
+
+        val rgb = android.graphics.Color.HSVToColor(floatArrayOf(avgHue, finalSat, avgVal))
+        return Color(rgb)
     }
 
     // Multi-Selection State for Songs, Folders, and Artists
@@ -1216,6 +1343,66 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             com.example.util.AppLogger.i("MusicViewModel", "Deleted ${selected.size} selected songs")
         }
         clearSelection()
+    }
+
+    // Playlist Multi-Selection
+    val selectedPlaylistIds = MutableStateFlow<Set<Long>>(emptySet())
+    val isPlaylistSelectionMode = MutableStateFlow(false)
+
+    fun togglePlaylistSelection(playlistId: Long) {
+        val current = selectedPlaylistIds.value.toMutableSet()
+        if (current.contains(playlistId)) {
+            current.remove(playlistId)
+            if (current.isEmpty()) isPlaylistSelectionMode.value = false
+        } else {
+            current.add(playlistId)
+            isPlaylistSelectionMode.value = true
+        }
+        selectedPlaylistIds.value = current
+    }
+
+    fun selectAllPlaylists(playlists: List<Playlist>) {
+        val allIds = playlists.map { it.id }.toSet()
+        if (selectedPlaylistIds.value.size == allIds.size) {
+            selectedPlaylistIds.value = emptySet()
+            isPlaylistSelectionMode.value = false
+        } else {
+            selectedPlaylistIds.value = allIds
+            isPlaylistSelectionMode.value = true
+        }
+    }
+
+    fun clearPlaylistSelection() {
+        selectedPlaylistIds.value = emptySet()
+        isPlaylistSelectionMode.value = false
+    }
+
+    fun deleteSelectedPlaylists(playlists: List<Playlist>) {
+        val selected = playlists.filter { it.id in selectedPlaylistIds.value }
+        viewModelScope.launch(Dispatchers.IO) {
+            selected.forEach { playlist ->
+                repository.deletePlaylist(playlist.id)
+            }
+            com.example.util.AppLogger.i("MusicViewModel", "Deleted ${selected.size} selected playlists")
+        }
+        clearPlaylistSelection()
+    }
+
+    fun playSelectedPlaylistsNow(playlists: List<Playlist>) {
+        val selected = playlists.filter { it.id in selectedPlaylistIds.value }
+        viewModelScope.launch(Dispatchers.IO) {
+            val allTracks = mutableListOf<Song>()
+            selected.forEach { playlist ->
+                val songs = repository.getSongsForPlaylist(playlist.id).firstOrNull() ?: emptyList()
+                allTracks.addAll(songs)
+            }
+            if (allTracks.isNotEmpty()) {
+                withContext(Dispatchers.Main) {
+                    playSong(allTracks.first(), allTracks)
+                }
+            }
+        }
+        clearPlaylistSelection()
     }
 
     override fun onCleared() {

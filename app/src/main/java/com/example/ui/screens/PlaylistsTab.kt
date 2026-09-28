@@ -17,6 +17,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,11 +33,14 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.example.ui.components.FloatingScrollbar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileOpen
@@ -38,6 +48,7 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -85,6 +96,7 @@ import com.example.ui.viewmodel.SortBy
 import com.example.ui.viewmodel.SortDirection
 import com.example.ui.viewmodel.ViewLayoutMode
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PlaylistsTab(
     viewModel: MusicViewModel,
@@ -100,13 +112,18 @@ fun PlaylistsTab(
     val layoutMode by viewModel.playlistsLayoutMode.collectAsState()
     val dynamicAccent by viewModel.dynamicAccentColor.collectAsState()
     val m3uImportMessage by viewModel.m3uImportMessage.collectAsState()
+    val selectedPlaylistIds by viewModel.selectedPlaylistIds.collectAsState()
+    val isPlaylistSelectionMode by viewModel.isPlaylistSelectionMode.collectAsState()
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
     var songToAddToAnotherPlaylist by remember { mutableStateOf<Song?>(null) }
 
-    // Hardware and Gesture Back Handler: Return to playlist list instead of switching tabs or closing app
-    BackHandler(enabled = selectedPlaylist != null) {
+    // Hardware and Gesture Back Handler: Clear selection or return to playlist list
+    BackHandler(enabled = isPlaylistSelectionMode) {
+        viewModel.clearPlaylistSelection()
+    }
+    BackHandler(enabled = !isPlaylistSelectionMode && selectedPlaylist != null) {
         viewModel.selectedPlaylist.value = null
     }
 
@@ -377,6 +394,19 @@ fun PlaylistsTab(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
+                        // Auto-Scan Device Playlists Button
+                        IconButton(
+                            onClick = { viewModel.autoScanAndImportAllPlaylists() },
+                            modifier = Modifier.testTag("btn_auto_scan_playlists")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Sync,
+                                contentDescription = "Auto-Scan Playlists",
+                                tint = dynamicAccent,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
                         // Import M3U Button
                         IconButton(
                             onClick = { m3uPickerLauncher.launch("*/*") },
@@ -436,12 +466,27 @@ fun PlaylistsTab(
 
                 if (sortedPlaylists.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "No playlists yet.\nTap + to create one, or tap folder icon to import M3U.",
-                            color = TextMuted,
-                            fontSize = 15.sp,
-                            textAlign = TextAlign.Center
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier.padding(24.dp)
+                        ) {
+                            Text(
+                                text = "No playlists found.\nTap + to create one, or auto-scan your storage for playlists.",
+                                color = TextMuted,
+                                fontSize = 15.sp,
+                                textAlign = TextAlign.Center
+                            )
+                            Button(
+                                onClick = { viewModel.autoScanAndImportAllPlaylists() },
+                                colors = ButtonDefaults.buttonColors(containerColor = dynamicAccent),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Sync, contentDescription = null, tint = Color.Black)
+                                Spacer(modifier = Modifier.size(6.dp))
+                                Text("Auto-Scan Device Playlists", color = Color.Black, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 } else {
                     Box(modifier = Modifier.fillMaxSize()) {
@@ -450,223 +495,471 @@ fun PlaylistsTab(
                                 LazyColumn(
                                     state = rootListState,
                                     modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                                contentPadding = PaddingValues(bottom = 80.dp)
-                            ) {
-                                items(sortedPlaylists, key = { it.id }) { playlist ->
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .glassmorphic(shape = RoundedCornerShape(14.dp), backgroundColor = DarkCardGlass)
-                                            .clickable { viewModel.selectedPlaylist.value = playlist }
-                                            .padding(12.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    contentPadding = PaddingValues(bottom = 80.dp)
+                                ) {
+                                    items(sortedPlaylists, key = { it.id }) { playlist ->
+                                        val isSelected = playlist.id in selectedPlaylistIds
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .glassmorphic(
+                                                    shape = RoundedCornerShape(14.dp),
+                                                    backgroundColor = if (isSelected) dynamicAccent.copy(alpha = 0.22f) else DarkCardGlass
+                                                )
+                                                .combinedClickable(
+                                                    onClick = {
+                                                        if (isPlaylistSelectionMode) {
+                                                            viewModel.togglePlaylistSelection(playlist.id)
+                                                        } else {
+                                                            viewModel.selectedPlaylist.value = playlist
+                                                        }
+                                                    },
+                                                    onLongClick = {
+                                                        viewModel.togglePlaylistSelection(playlist.id)
+                                                    }
+                                                )
+                                                .padding(12.dp)
                                         ) {
-                                            SquareCoverArt(
-                                                albumArtUri = playlist.customCoverUri,
-                                                contentDescription = playlist.name,
-                                                shape = RoundedCornerShape(10.dp),
-                                                modifier = Modifier.size(54.dp)
-                                            )
-                                            Text(
-                                                text = playlist.name,
-                                                color = TextWhite,
-                                                fontSize = 16.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            IconButton(
-                                                onClick = {
-                                                    editingPlaylist = playlist
-                                                    editPlaylistName = playlist.name
-                                                    editPlaylistCoverUri = playlist.customCoverUri
-                                                },
-                                                modifier = Modifier.size(36.dp)
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(14.dp)
                                             ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Edit,
-                                                    contentDescription = "Edit Playlist",
-                                                    tint = dynamicAccent,
-                                                    modifier = Modifier.size(20.dp)
+                                                if (isPlaylistSelectionMode) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(24.dp)
+                                                            .clip(CircleShape)
+                                                            .background(if (isSelected) dynamicAccent else Color(0x33FFFFFF)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        if (isSelected) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Check,
+                                                                contentDescription = null,
+                                                                tint = Color.Black,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                SquareCoverArt(
+                                                    albumArtUri = playlist.customCoverUri,
+                                                    contentDescription = playlist.name,
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    modifier = Modifier.size(54.dp)
                                                 )
-                                            }
-                                            IconButton(
-                                                onClick = { viewModel.deletePlaylist(playlist) },
-                                                modifier = Modifier.size(36.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Delete,
-                                                    contentDescription = "Delete Playlist",
-                                                    tint = AccentRed,
-                                                    modifier = Modifier.size(20.dp)
+                                                Text(
+                                                    text = playlist.name,
+                                                    color = TextWhite,
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f)
                                                 )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        ViewLayoutMode.LIST_COMPACT -> {
-                            LazyColumn(
-                                state = rootListState,
-                                modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                                contentPadding = PaddingValues(bottom = 80.dp)
-                            ) {
-                                items(sortedPlaylists, key = { it.id }) { playlist ->
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .glassmorphic(shape = RoundedCornerShape(10.dp), backgroundColor = DarkCardGlass)
-                                            .clickable { viewModel.selectedPlaylist.value = playlist }
-                                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            SquareCoverArt(
-                                                albumArtUri = playlist.customCoverUri,
-                                                contentDescription = playlist.name,
-                                                shape = RoundedCornerShape(8.dp),
-                                                modifier = Modifier.size(38.dp)
-                                            )
-                                            Text(
-                                                text = playlist.name,
-                                                color = TextWhite,
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            IconButton(
-                                                onClick = {
-                                                    editingPlaylist = playlist
-                                                    editPlaylistName = playlist.name
-                                                    editPlaylistCoverUri = playlist.customCoverUri
-                                                },
-                                                modifier = Modifier.size(28.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Edit,
-                                                    contentDescription = "Edit Playlist",
-                                                    tint = dynamicAccent,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
+                                                if (!isPlaylistSelectionMode) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            editingPlaylist = playlist
+                                                            editPlaylistName = playlist.name
+                                                            editPlaylistCoverUri = playlist.customCoverUri
+                                                        },
+                                                        modifier = Modifier.size(36.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Edit,
+                                                            contentDescription = "Edit Playlist",
+                                                            tint = dynamicAccent,
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+                                                    IconButton(
+                                                        onClick = { viewModel.deletePlaylist(playlist) },
+                                                        modifier = Modifier.size(36.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Delete,
+                                                            contentDescription = "Delete Playlist",
+                                                            tint = AccentRed,
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
-                        ViewLayoutMode.GRID_3 -> {
-                            LazyVerticalGrid(
-                                columns = GridCells.Fixed(3),
-                                state = rootGridState,
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                                contentPadding = PaddingValues(bottom = 80.dp)
-                            ) {
-                                items(sortedPlaylists, key = { it.id }) { playlist ->
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .glassmorphic(shape = RoundedCornerShape(12.dp), backgroundColor = DarkCardGlass)
-                                            .clickable { viewModel.selectedPlaylist.value = playlist }
-                                            .padding(6.dp)
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalAlignment = Alignment.CenterHorizontally
+                            ViewLayoutMode.LIST_COMPACT -> {
+                                LazyColumn(
+                                    state = rootListState,
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    contentPadding = PaddingValues(bottom = 80.dp)
+                                ) {
+                                    items(sortedPlaylists, key = { it.id }) { playlist ->
+                                        val isSelected = playlist.id in selectedPlaylistIds
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .glassmorphic(
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    backgroundColor = if (isSelected) dynamicAccent.copy(alpha = 0.22f) else DarkCardGlass
+                                                )
+                                                .combinedClickable(
+                                                    onClick = {
+                                                        if (isPlaylistSelectionMode) {
+                                                            viewModel.togglePlaylistSelection(playlist.id)
+                                                        } else {
+                                                            viewModel.selectedPlaylist.value = playlist
+                                                        }
+                                                    },
+                                                    onLongClick = {
+                                                        viewModel.togglePlaylistSelection(playlist.id)
+                                                    }
+                                                )
+                                                .padding(horizontal = 12.dp, vertical = 8.dp)
                                         ) {
-                                            SquareCoverArt(
-                                                albumArtUri = playlist.customCoverUri,
-                                                contentDescription = playlist.name,
-                                                shape = RoundedCornerShape(8.dp),
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .aspectRatio(1f)
-                                            )
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = playlist.name,
-                                                color = TextWhite,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                textAlign = TextAlign.Center
-                                            )
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                if (isPlaylistSelectionMode) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(22.dp)
+                                                            .clip(CircleShape)
+                                                            .background(if (isSelected) dynamicAccent else Color(0x33FFFFFF)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        if (isSelected) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Check,
+                                                                contentDescription = null,
+                                                                tint = Color.Black,
+                                                                modifier = Modifier.size(14.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                SquareCoverArt(
+                                                    albumArtUri = playlist.customCoverUri,
+                                                    contentDescription = playlist.name,
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    modifier = Modifier.size(38.dp)
+                                                )
+                                                Text(
+                                                    text = playlist.name,
+                                                    color = TextWhite,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                if (!isPlaylistSelectionMode) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            editingPlaylist = playlist
+                                                            editPlaylistName = playlist.name
+                                                            editPlaylistCoverUri = playlist.customCoverUri
+                                                        },
+                                                        modifier = Modifier.size(28.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Edit,
+                                                            contentDescription = "Edit Playlist",
+                                                            tint = dynamicAccent,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            ViewLayoutMode.GRID_3 -> {
+                                LazyVerticalGrid(
+                                    columns = GridCells.Fixed(3),
+                                    state = rootGridState,
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    contentPadding = PaddingValues(bottom = 80.dp)
+                                ) {
+                                    items(sortedPlaylists, key = { it.id }) { playlist ->
+                                        val isSelected = playlist.id in selectedPlaylistIds
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .glassmorphic(
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    backgroundColor = if (isSelected) dynamicAccent.copy(alpha = 0.22f) else DarkCardGlass
+                                                )
+                                                .combinedClickable(
+                                                    onClick = {
+                                                        if (isPlaylistSelectionMode) {
+                                                            viewModel.togglePlaylistSelection(playlist.id)
+                                                        } else {
+                                                            viewModel.selectedPlaylist.value = playlist
+                                                        }
+                                                    },
+                                                    onLongClick = {
+                                                        viewModel.togglePlaylistSelection(playlist.id)
+                                                    }
+                                                )
+                                                .padding(6.dp)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f)) {
+                                                    SquareCoverArt(
+                                                        albumArtUri = playlist.customCoverUri,
+                                                        contentDescription = playlist.name,
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        modifier = Modifier.fillMaxSize()
+                                                    )
+                                                    if (isPlaylistSelectionMode) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .padding(4.dp)
+                                                                .align(Alignment.TopEnd)
+                                                                .size(22.dp)
+                                                                .clip(CircleShape)
+                                                                .background(if (isSelected) dynamicAccent else Color(0x88000000)),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            if (isSelected) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Check,
+                                                                    contentDescription = null,
+                                                                    tint = Color.Black,
+                                                                    modifier = Modifier.size(14.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    text = playlist.name,
+                                                    color = TextWhite,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            ViewLayoutMode.GRID_4 -> {
+                                LazyVerticalGrid(
+                                    columns = GridCells.Fixed(4),
+                                    state = rootGridState,
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    contentPadding = PaddingValues(bottom = 80.dp)
+                                ) {
+                                    items(sortedPlaylists, key = { it.id }) { playlist ->
+                                        val isSelected = playlist.id in selectedPlaylistIds
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .glassmorphic(
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    backgroundColor = if (isSelected) dynamicAccent.copy(alpha = 0.22f) else DarkCardGlass
+                                                )
+                                                .combinedClickable(
+                                                    onClick = {
+                                                        if (isPlaylistSelectionMode) {
+                                                            viewModel.togglePlaylistSelection(playlist.id)
+                                                        } else {
+                                                            viewModel.selectedPlaylist.value = playlist
+                                                        }
+                                                    },
+                                                    onLongClick = {
+                                                        viewModel.togglePlaylistSelection(playlist.id)
+                                                    }
+                                                )
+                                                .padding(4.dp)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f)) {
+                                                    SquareCoverArt(
+                                                        albumArtUri = playlist.customCoverUri,
+                                                        contentDescription = playlist.name,
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        modifier = Modifier.fillMaxSize()
+                                                    )
+                                                    if (isPlaylistSelectionMode) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .padding(2.dp)
+                                                                .align(Alignment.TopEnd)
+                                                                .size(18.dp)
+                                                                .clip(CircleShape)
+                                                                .background(if (isSelected) dynamicAccent else Color(0x88000000)),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            if (isSelected) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Check,
+                                                                    contentDescription = null,
+                                                                    tint = Color.Black,
+                                                                    modifier = Modifier.size(12.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(3.dp))
+                                                Text(
+                                                    text = playlist.name,
+                                                    color = TextWhite,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                        ViewLayoutMode.GRID_4 -> {
-                            LazyVerticalGrid(
-                                columns = GridCells.Fixed(4),
-                                state = rootGridState,
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                                contentPadding = PaddingValues(bottom = 80.dp)
+                        if (layoutMode == ViewLayoutMode.LIST_NORMAL || layoutMode == ViewLayoutMode.LIST_COMPACT) {
+                            FloatingScrollbar(
+                                listState = rootListState,
+                                modifier = Modifier.align(Alignment.CenterEnd),
+                                accentColor = dynamicAccent
+                            )
+                        } else {
+                            FloatingScrollbar(
+                                gridState = rootGridState,
+                                modifier = Modifier.align(Alignment.CenterEnd),
+                                accentColor = dynamicAccent
+                            )
+                        }
+
+                        // Multi-Select Floating Action Bar for Playlists
+                        AnimatedVisibility(
+                            visible = isPlaylistSelectionMode && selectedPlaylistIds.isNotEmpty(),
+                            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 75.dp)
+                        ) {
+                            var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color(0xFF16161A))
+                                    .padding(horizontal = 12.dp, vertical = 10.dp)
                             ) {
-                                items(sortedPlaylists, key = { it.id }) { playlist ->
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .glassmorphic(shape = RoundedCornerShape(10.dp), backgroundColor = DarkCardGlass)
-                                            .clickable { viewModel.selectedPlaylist.value = playlist }
-                                            .padding(4.dp)
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalAlignment = Alignment.CenterHorizontally
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(
+                                            onClick = { viewModel.clearPlaylistSelection() },
+                                            modifier = Modifier.size(30.dp)
                                         ) {
-                                            SquareCoverArt(
-                                                albumArtUri = playlist.customCoverUri,
-                                                contentDescription = playlist.name,
-                                                shape = RoundedCornerShape(6.dp),
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .aspectRatio(1f)
-                                            )
-                                            Spacer(modifier = Modifier.height(3.dp))
-                                            Text(
-                                                text = playlist.name,
-                                                color = TextWhite,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                textAlign = TextAlign.Center
-                                            )
+                                            Icon(Icons.Default.Close, contentDescription = "Close", tint = TextWhite, modifier = Modifier.size(18.dp))
                                         }
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "${selectedPlaylistIds.size} Selected",
+                                            color = TextWhite,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp
+                                        )
+                                    }
+
+                                    TextButton(onClick = { viewModel.selectAllPlaylists(sortedPlaylists) }) {
+                                        Text(
+                                            text = if (selectedPlaylistIds.size == sortedPlaylists.size) "Deselect All" else "Select All (${sortedPlaylists.size})",
+                                            color = dynamicAccent,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Button(
+                                        onClick = { viewModel.playSelectedPlaylistsNow(sortedPlaylists) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = dynamicAccent),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Play All", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+
+                                    Button(
+                                        onClick = { showBatchDeleteConfirm = true },
+                                        colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Delete, contentDescription = null, tint = TextWhite, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Delete", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                     }
                                 }
                             }
+
+                            if (showBatchDeleteConfirm) {
+                                AlertDialog(
+                                    onDismissRequest = { showBatchDeleteConfirm = false },
+                                    containerColor = Color(0xFF1E1E24),
+                                    title = { Text("Delete ${selectedPlaylistIds.size} Playlist(s)?", color = TextWhite, fontWeight = FontWeight.Bold) },
+                                    text = {
+                                        Text("Are you sure you want to delete the selected playlist(s)? Tracks will not be removed from storage.", color = TextMuted)
+                                    },
+                                    confirmButton = {
+                                        Button(
+                                            onClick = {
+                                                showBatchDeleteConfirm = false
+                                                viewModel.deleteSelectedPlaylists(sortedPlaylists)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
+                                        ) {
+                                            Text("Delete", color = TextWhite, fontWeight = FontWeight.Bold)
+                                        }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { showBatchDeleteConfirm = false }) {
+                                            Text("Cancel", color = TextMuted)
+                                        }
+                                    }
+                                )
+                            }
                         }
-                    }
-                    if (layoutMode == ViewLayoutMode.LIST_NORMAL || layoutMode == ViewLayoutMode.LIST_COMPACT) {
-                        FloatingScrollbar(
-                            listState = rootListState,
-                            modifier = Modifier.align(Alignment.CenterEnd),
-                            accentColor = dynamicAccent
-                        )
-                    } else {
-                        FloatingScrollbar(
-                            gridState = rootGridState,
-                            modifier = Modifier.align(Alignment.CenterEnd),
-                            accentColor = dynamicAccent
-                        )
-                    }
                 }
                 }
             }

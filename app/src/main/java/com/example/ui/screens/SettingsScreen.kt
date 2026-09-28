@@ -1041,7 +1041,7 @@ private fun SettingsCategoryCard(
     title: String,
     icon: ImageVector,
     accentColor: Color,
-    initialExpanded: Boolean = true,
+    initialExpanded: Boolean = false,
     content: @Composable () -> Unit
 ) {
     var expanded by remember { mutableStateOf(initialExpanded) }

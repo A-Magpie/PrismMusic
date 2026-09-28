@@ -546,6 +546,13 @@ class AudioPlaybackService : MediaSessionService() {
         }
     }
 
+    fun removeFromQueue(songId: Long) {
+        val idx = queue.indexOfFirst { it.id == songId }
+        if (idx != -1) {
+            removeFromQueue(idx)
+        }
+    }
+
     fun togglePlayPause() {
         if (currentSong == null && queue.isNotEmpty()) {
             loadTrack(queue[0], 0L, true)
@@ -556,20 +563,39 @@ class AudioPlaybackService : MediaSessionService() {
         saveCurrentPlaybackState()
     }
 
+    fun setQueueWithShuffle(songs: List<Song>, startIndex: Int = 0, playImmediately: Boolean = true) {
+        if (songs.isEmpty()) return
+        originalQueue = songs
+        shuffleEnabled = true
+        val selected = songs.getOrNull(startIndex) ?: songs.first()
+        val rest = songs.filter { it.id != selected.id }.shuffled()
+        queue = (listOf(selected) + rest).toMutableList()
+        currentQueueIndex = 0
+        AppLogger.i("AudioPlaybackService", "setQueueWithShuffle: originalSize=${songs.size}, startingWith='${selected.title}', shuffleEnabled=true")
+        loadTrack(selected, 0L, playImmediately)
+        onQueueChanged?.invoke(queue)
+        saveCurrentPlaybackState()
+    }
+
     fun playNext() {
         if (queue.isEmpty()) return
+        AppLogger.v("AudioPlaybackService", "playNext() invoked: currentQueueIndex=$currentQueueIndex (${currentSong?.title}), queueSize=${queue.size}, repeatMode=$repeatMode, shuffle=$shuffleEnabled")
         if (repeatMode == 2) { // Repeat One
+            AppLogger.v("AudioPlaybackService", "RepeatOne active: replaying current track")
             playerEngine.seekTo(0L)
             playerEngine.play()
             return
         }
         if (currentQueueIndex + 1 < queue.size) {
             currentQueueIndex++
+            AppLogger.i("AudioPlaybackService", "Moving to next track at index $currentQueueIndex: '${queue[currentQueueIndex].title}'")
             loadTrack(queue[currentQueueIndex], 0L, true)
         } else if (repeatMode == 1) { // Repeat All
             currentQueueIndex = 0
+            AppLogger.i("AudioPlaybackService", "RepeatAll active: looping queue to index 0: '${queue[0].title}'")
             loadTrack(queue[currentQueueIndex], 0L, true)
         } else {
+            AppLogger.i("AudioPlaybackService", "End of queue reached with repeatMode=OFF -> pausing playback")
             playerEngine.pause()
             playerEngine.seekTo(0L)
         }
@@ -577,27 +603,34 @@ class AudioPlaybackService : MediaSessionService() {
 
     fun playPrevious() {
         if (queue.isEmpty()) return
+        AppLogger.v("AudioPlaybackService", "playPrevious() invoked: currentPos=${playerEngine.currentPosition.value}ms, currentQueueIndex=$currentQueueIndex")
         if (playerEngine.currentPosition.value > 3000L) {
+            AppLogger.v("AudioPlaybackService", "Position > 3s: rewinding to beginning of current track")
             playerEngine.seekTo(0L)
             return
         }
         if (currentQueueIndex - 1 >= 0) {
             currentQueueIndex--
+            AppLogger.i("AudioPlaybackService", "Moving to previous track at index $currentQueueIndex: '${queue[currentQueueIndex].title}'")
             loadTrack(queue[currentQueueIndex], 0L, true)
         } else if (repeatMode == 1) {
             currentQueueIndex = queue.size - 1
+            AppLogger.i("AudioPlaybackService", "RepeatAll active: wrapping to last track at index $currentQueueIndex: '${queue[currentQueueIndex].title}'")
             loadTrack(queue[currentQueueIndex], 0L, true)
         } else {
+            AppLogger.v("AudioPlaybackService", "At start of queue: rewinding to 0")
             playerEngine.seekTo(0L)
         }
     }
 
     fun toggleRepeatMode() {
         repeatMode = (repeatMode + 1) % 3
+        AppLogger.i("AudioPlaybackService", "toggleRepeatMode -> $repeatMode (0=OFF, 1=ALL, 2=ONE)")
     }
 
     fun toggleShuffle() {
         shuffleEnabled = !shuffleEnabled
+        AppLogger.i("AudioPlaybackService", "toggleShuffle -> $shuffleEnabled")
         val current = currentSong
         if (shuffleEnabled) {
             val rest = queue.filter { it.id != current?.id }.shuffled()
@@ -613,6 +646,7 @@ class AudioPlaybackService : MediaSessionService() {
     }
 
     fun loadTrack(song: Song, startPosition: Long = 0L, playImmediately: Boolean = false) {
+        AppLogger.i("AudioPlaybackService", "loadTrack: id=${song.id}, title='${song.title}', artist='${song.artist}', startPos=${startPosition}ms, playImmediately=$playImmediately")
         currentSong = song
         if (queue.getOrNull(currentQueueIndex)?.id != song.id) {
             val matchingIdx = queue.indexOfFirst { it.id == song.id }
@@ -735,10 +769,9 @@ class AudioPlaybackService : MediaSessionService() {
             .setShowWhen(false)
             .setOnlyAlertOnce(true)
 
-        // Add Album Art bitmap if available
-        getCoverArtBitmap(song?.albumArtUri)?.let {
-            builder.setLargeIcon(it)
-        }
+        // Add Album Art bitmap if available, or clear large icon explicitly to prevent stale previous artwork
+        val coverBmp = getCoverArtBitmap(song)
+        builder.setLargeIcon(coverBmp)
 
         // Seekbar / Progress in notification
         val duration = (song?.duration ?: 0L).toInt()
@@ -786,15 +819,46 @@ class AudioPlaybackService : MediaSessionService() {
         }
     }
 
-    private fun getCoverArtBitmap(uriString: String?): Bitmap? {
-        if (uriString.isNullOrBlank()) return null
-        return try {
-            val uri = Uri.parse(uriString)
-            val inputStream: InputStream? = contentResolver.openInputStream(uri)
-            inputStream?.use { BitmapFactory.decodeStream(it) }
-        } catch (_: Exception) {
-            null
+    private fun getCoverArtBitmap(song: Song?): Bitmap? {
+        if (song == null) return null
+
+        // 1. Try song.albumArtUri
+        if (!song.albumArtUri.isNullOrBlank()) {
+            try {
+                val uri = Uri.parse(song.albumArtUri)
+                val inputStream: InputStream? = contentResolver.openInputStream(uri)
+                val bmp = inputStream?.use { BitmapFactory.decodeStream(it) }
+                if (bmp != null) return bmp
+            } catch (_: Exception) {}
         }
+
+        // 2. Try Android 10+ MediaStore thumbnail from song.uri
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && song.uri.isNotBlank()) {
+            try {
+                val bmp = contentResolver.loadThumbnail(
+                    Uri.parse(song.uri),
+                    android.util.Size(256, 256),
+                    null
+                )
+                if (bmp != null) return bmp
+            } catch (_: Exception) {}
+        }
+
+        // 3. Try MediaMetadataRetriever embedded picture from song.uri
+        if (song.uri.isNotBlank()) {
+            try {
+                val mmr = android.media.MediaMetadataRetriever()
+                mmr.setDataSource(this, Uri.parse(song.uri))
+                val bytes = mmr.embeddedPicture
+                mmr.release()
+                if (bytes != null) {
+                    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    if (bmp != null) return bmp
+                }
+            } catch (_: Exception) {}
+        }
+
+        return null
     }
 
     override fun onDestroy() {

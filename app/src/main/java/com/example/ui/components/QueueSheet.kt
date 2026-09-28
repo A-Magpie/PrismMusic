@@ -36,12 +36,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -422,6 +426,9 @@ fun QueueSheet(
                                     if (realIdx >= 0) viewModel.removeFromQueue(realIdx)
                                     else viewModel.removeFromQueue(index)
                                 },
+                                onDeletePermanent = {
+                                    viewModel.deleteSong(song)
+                                },
                                 onDragStart = {
                                     isDraggingActive = true
                                     draggingSongKey = entry.stableKey
@@ -531,11 +538,14 @@ private fun QueueItemRow(
     dragOffsetY: Float,
     onPlay: () -> Unit,
     onRemove: () -> Unit,
+    onDeletePermanent: () -> Unit,
     onDragStart: () -> Unit,
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit
 ) {
     var swipeOffset by remember { mutableFloatStateOf(0f) }
+    var menuExpanded by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val currentOnDrag by rememberUpdatedState(onDrag)
     val currentOnDragStart by rememberUpdatedState(onDragStart)
     val currentOnDragEnd by rememberUpdatedState(onDragEnd)
@@ -684,6 +694,74 @@ private fun QueueItemRow(
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.sp,
                     modifier = Modifier.padding(end = 4.dp)
+                )
+            }
+
+            // 3-dots Menu for Queue Item
+            Box {
+                IconButton(
+                    onClick = { menuExpanded = true },
+                    modifier = Modifier.size(30.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Options",
+                        tint = TextMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                    modifier = Modifier.background(DarkCardGlass)
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Remove from Queue", color = TextWhite) },
+                        leadingIcon = { Icon(Icons.Default.Close, contentDescription = null, tint = TextWhite) },
+                        onClick = {
+                            menuExpanded = false
+                            onRemove()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete from Storage", color = AccentRed) },
+                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = AccentRed) },
+                        onClick = {
+                            menuExpanded = false
+                            showDeleteConfirm = true
+                        }
+                    )
+                }
+            }
+
+            if (showDeleteConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showDeleteConfirm = false },
+                    containerColor = Color(0xFF1E1E24),
+                    title = { Text("Delete Track?", color = TextWhite, fontWeight = FontWeight.Bold) },
+                    text = {
+                        Text(
+                            "Are you sure you want to permanently delete \"${song.title}\" from your device storage? This cannot be undone.",
+                            color = TextMuted
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showDeleteConfirm = false
+                                onDeletePermanent()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
+                        ) {
+                            Text("Delete", color = TextWhite, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDeleteConfirm = false }) {
+                            Text("Cancel", color = TextMuted)
+                        }
+                    }
                 )
             }
 

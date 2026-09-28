@@ -1,6 +1,9 @@
 package com.example.data.repository
 
+import android.content.ContentUris
 import android.content.Context
+import android.net.Uri
+import android.provider.MediaStore
 import com.example.data.db.AppDatabase
 import com.example.data.model.AppSettingsEntity
 import com.example.data.model.PlaybackStateEntity
@@ -10,6 +13,7 @@ import com.example.data.model.Song
 import com.example.data.scanner.MediaScanner
 import com.example.data.scanner.ScanResult
 import com.example.data.tageditor.Id3TagEditor
+import com.example.util.AppLogger
 import kotlinx.coroutines.flow.Flow
 import java.io.File
 
@@ -55,17 +59,35 @@ class MusicRepository(private val context: Context) {
         songDao.incrementPlayCount(songId, System.currentTimeMillis())
     }
 
-    suspend fun deleteSong(songId: Long) {
+    suspend fun deleteSong(songId: Long): Boolean {
         val song = songDao.getSongById(songId)
+        var fileDeleted = false
         if (song != null) {
-            val file = File(song.path)
-            if (file.exists() && file.canWrite()) {
-                try {
-                    file.delete()
-                } catch (_: Exception) {}
+            try {
+                val file = File(song.path)
+                if (file.exists()) {
+                    fileDeleted = file.delete()
+                    AppLogger.i("MusicRepository", "Direct File.delete for '${song.title}': $fileDeleted")
+                }
+            } catch (e: Exception) {
+                AppLogger.w("MusicRepository", "Direct file.delete failed for ${song.path}", e)
+            }
+
+            try {
+                val uri = if (song.uri.isNotBlank()) {
+                    Uri.parse(song.uri)
+                } else {
+                    ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, song.id)
+                }
+                val count = context.contentResolver.delete(uri, null, null)
+                if (count > 0) fileDeleted = true
+                AppLogger.i("MusicRepository", "contentResolver.delete rows affected: $count for uri: $uri")
+            } catch (e: Exception) {
+                AppLogger.w("MusicRepository", "contentResolver.delete failed for ${song.uri}", e)
             }
         }
         songDao.deleteSongById(songId)
+        return fileDeleted
     }
 
     suspend fun updateSongTags(
@@ -88,6 +110,13 @@ class MusicRepository(private val context: Context) {
             coverArtBytes
         )
         songDao.updateSong(updated)
+        // If album cover was updated, share with siblings in the same album
+        if (updated.album.isNotBlank() && !updated.albumArtUri.isNullOrBlank()) {
+            val siblings = songDao.getSongsByAlbum(updated.album)
+            siblings.filter { it.id != updated.id }.forEach { sibling ->
+                songDao.updateSong(sibling.copy(albumArtUri = updated.albumArtUri))
+            }
+        }
         return updated
     }
 

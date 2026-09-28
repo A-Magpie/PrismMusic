@@ -213,23 +213,44 @@ object MediaScanner {
             }
         }
 
+        // 3.5. Unify album art across songs belonging to the same album
+        val albumArtMap = mutableMapOf<String, String>()
+        for (song in scannedSongs) {
+            val key = "${song.album.trim().lowercase()}_${song.artist.trim().lowercase()}"
+            if (!song.albumArtUri.isNullOrBlank() && !albumArtMap.containsKey(key)) {
+                albumArtMap[key] = song.albumArtUri
+            }
+        }
+        for (existing in existingSongs) {
+            val key = "${existing.album.trim().lowercase()}_${existing.artist.trim().lowercase()}"
+            if (!existing.albumArtUri.isNullOrBlank() && !albumArtMap.containsKey(key)) {
+                albumArtMap[key] = existing.albumArtUri
+            }
+        }
+
         // 4. Upsert to Room DB while preserving play counts, favorites, and custom lyrics
         for (song in scannedSongs) {
-            if (song.id !in existingIds) {
+            val key = "${song.album.trim().lowercase()}_${song.artist.trim().lowercase()}"
+            val sharedArt = albumArtMap[key]
+            val resolvedSong = if (song.albumArtUri.isNullOrBlank() && !sharedArt.isNullOrBlank()) {
+                song.copy(albumArtUri = sharedArt)
+            } else song
+
+            if (resolvedSong.id !in existingIds) {
                 addedCount++
             }
-            val existing = songDao.getSongById(song.id)
+            val existing = songDao.getSongById(resolvedSong.id)
             if (existing != null) {
-                val merged = song.copy(
+                val merged = resolvedSong.copy(
                     playCount = existing.playCount,
                     lastPlayedTimestamp = existing.lastPlayedTimestamp,
                     isFavorite = existing.isFavorite,
-                    lyrics = if (existing.lyrics.isNotBlank()) existing.lyrics else song.lyrics,
-                    albumArtUri = existing.albumArtUri ?: song.albumArtUri
+                    lyrics = if (existing.lyrics.isNotBlank()) existing.lyrics else resolvedSong.lyrics,
+                    albumArtUri = existing.albumArtUri ?: resolvedSong.albumArtUri ?: sharedArt
                 )
                 songDao.updateSong(merged)
             } else {
-                songDao.insertSongs(listOf(song))
+                songDao.insertSongs(listOf(resolvedSong))
             }
         }
 

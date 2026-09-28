@@ -73,6 +73,11 @@ object AppLogger {
         i("AppLogger", "Logging toggled by user: $enabled")
     }
 
+    fun v(tag: String, message: String) {
+        Log.v(tag, message)
+        writeLog("VERBOSE", tag, message, null)
+    }
+
     fun d(tag: String, message: String) {
         Log.d(tag, message)
         writeLog("DEBUG", tag, message, null)

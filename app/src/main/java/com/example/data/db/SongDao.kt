@@ -53,6 +53,9 @@ interface SongDao {
     @Query("DELETE FROM songs")
     suspend fun clearAllSongs()
 
+    @Query("SELECT * FROM songs WHERE album = :album")
+    suspend fun getSongsByAlbum(album: String): List<Song>
+
     @Query("SELECT * FROM songs WHERE title LIKE '%' || :query || '%' OR artist LIKE '%' || :query || '%' OR album LIKE '%' || :query || '%'")
     fun searchSongs(query: String): Flow<List<Song>>
 }

@@ -22,11 +22,15 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Queue
 import androidx.compose.material.icons.filled.QueuePlayNext
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -81,6 +85,7 @@ fun SongItemCard(
     onLongClick: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -265,7 +270,37 @@ fun SongItemCard(
                         leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = AccentRed) },
                         onClick = {
                             menuExpanded = false
-                            onDelete()
+                            showDeleteConfirmDialog = true
+                        }
+                    )
+                }
+
+                if (showDeleteConfirmDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showDeleteConfirmDialog = false },
+                        containerColor = Color(0xFF1E1E24),
+                        title = { Text("Delete Track?", color = TextWhite, fontWeight = FontWeight.Bold) },
+                        text = {
+                            Text(
+                                "Are you sure you want to permanently delete \"${song.title}\" from your device storage? This cannot be undone.",
+                                color = TextMuted
+                            )
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    showDeleteConfirmDialog = false
+                                    onDelete()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
+                            ) {
+                                Text("Delete", color = TextWhite, fontWeight = FontWeight.Bold)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                                Text("Cancel", color = TextMuted)
+                            }
                         }
                     )
                 }

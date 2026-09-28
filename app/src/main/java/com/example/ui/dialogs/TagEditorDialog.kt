@@ -1,6 +1,16 @@
 package com.example.ui.dialogs
 
+import android.content.ContentValues
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,10 +29,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -119,21 +131,37 @@ fun TagEditorDialog(
                             }
                     )
 
-                    Column {
-                        Button(
-                            onClick = {
-                                photoPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = dynamicAccent),
-                            shape = RoundedCornerShape(8.dp)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = Color.Black)
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text("Change Art", color = Color.Black, fontSize = 12.sp)
+                            Button(
+                                onClick = {
+                                    photoPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = dynamicAccent),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.size(4.dp))
+                                Text("Change Art", color = Color.Black, fontSize = 12.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    saveCoverArtToGallery(context, song, newCoverBytes, selectedImageUri)
+                                },
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null, tint = dynamicAccent, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.size(4.dp))
+                                Text("Save Art", color = dynamicAccent, fontSize = 12.sp)
+                            }
                         }
-                        Text("Supports PNG / JPEG", color = TextMuted, fontSize = 11.sp)
+                        Text("Save cover to gallery or choose a new one", color = TextMuted, fontSize = 11.sp)
                     }
                 }
 
@@ -235,4 +263,110 @@ fun TagEditorDialog(
             }
         }
     )
+}
+
+fun saveCoverArtToGallery(
+    context: Context,
+    song: Song,
+    customBytes: ByteArray?,
+    selectedUri: Uri?
+) {
+    try {
+        var bitmap: Bitmap? = null
+
+        // 1. If user selected a new image in this dialog
+        if (customBytes != null) {
+            bitmap = BitmapFactory.decodeByteArray(customBytes, 0, customBytes.size)
+        } else if (selectedUri != null) {
+            try {
+                bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, selectedUri))
+                } else {
+                    @Suppress("DEPRECATION")
+                    MediaStore.Images.Media.getBitmap(context.contentResolver, selectedUri)
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 2. If no new selection, extract from song's albumArtUri
+        if (bitmap == null && !song.albumArtUri.isNullOrBlank()) {
+            try {
+                val artUri = Uri.parse(song.albumArtUri)
+                context.contentResolver.openInputStream(artUri)?.use { stream ->
+                    bitmap = BitmapFactory.decodeStream(stream)
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 3. Fallback: Embedded picture via MediaMetadataRetriever
+        if (bitmap == null) {
+            val retriever = MediaMetadataRetriever()
+            try {
+                if (song.uri.isNotBlank()) {
+                    retriever.setDataSource(context, Uri.parse(song.uri))
+                } else {
+                    retriever.setDataSource(song.path)
+                }
+                val artBytes = retriever.embeddedPicture
+                if (artBytes != null) {
+                    bitmap = BitmapFactory.decodeByteArray(artBytes, 0, artBytes.size)
+                }
+            } catch (_: Exception) {
+                try {
+                    retriever.setDataSource(song.path)
+                    val artBytes = retriever.embeddedPicture
+                    if (artBytes != null) {
+                        bitmap = BitmapFactory.decodeByteArray(artBytes, 0, artBytes.size)
+                    }
+                } catch (_: Exception) {}
+            } finally {
+                try { retriever.release() } catch (_: Exception) {}
+            }
+        }
+
+        if (bitmap == null) {
+            Toast.makeText(context, "No cover art found to save", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Save bitmap to MediaStore Images Gallery
+        val cleanArtist = song.artist.replace("[^a-zA-Z0-9.-]".toRegex(), "_").take(15)
+        val cleanTitle = song.title.replace("[^a-zA-Z0-9.-]".toRegex(), "_").take(15)
+        val filename = "Cover_${cleanArtist}_${cleanTitle}_${System.currentTimeMillis()}.jpg"
+
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, filename)
+            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/PrismMusic")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+
+        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        } else {
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        }
+
+        val insertedUri = context.contentResolver.insert(collection, values)
+        if (insertedUri != null) {
+            context.contentResolver.openOutputStream(insertedUri)?.use { outStream ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, outStream)
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                values.clear()
+                values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                context.contentResolver.update(insertedUri, values, null, null)
+            }
+
+            Toast.makeText(context, "Cover art saved to Gallery!", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "Failed to save cover art", Toast.LENGTH_SHORT).show()
+        }
+    } catch (e: Exception) {
+        com.example.util.AppLogger.w("TagEditorDialog", "Failed to save cover to gallery", e)
+        Toast.makeText(context, "Error saving cover: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
 }

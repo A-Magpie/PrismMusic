@@ -22,6 +22,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.example.data.model.Song
+import com.example.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -135,6 +136,7 @@ class AudioPlayerEngine(
 
         exoPlayer.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                AppLogger.v(TAG, "onIsPlayingChanged: isPlaying=$isPlaying, currentSongId=$currentSongId")
                 _isPlaying.value = isPlaying
                 if (isPlaying) {
                     startProgressTracker()
@@ -144,15 +146,39 @@ class AudioPlayerEngine(
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
+                val stateName = when (playbackState) {
+                    Player.STATE_IDLE -> "STATE_IDLE"
+                    Player.STATE_BUFFERING -> "STATE_BUFFERING"
+                    Player.STATE_READY -> "STATE_READY (duration=${exoPlayer.duration}ms)"
+                    Player.STATE_ENDED -> "STATE_ENDED"
+                    else -> "STATE_UNKNOWN($playbackState)"
+                }
+                AppLogger.v(TAG, "onPlaybackStateChanged: $stateName, currentSongId=$currentSongId")
+
                 if (playbackState == Player.STATE_READY) {
                     _duration.value = exoPlayer.duration.coerceAtLeast(0L)
                     setupAudioFx(exoPlayer.audioSessionId)
                 } else if (playbackState == Player.STATE_ENDED) {
-                    Log.d(TAG, "Track ended -> invoking onTrackEnded")
+                    AppLogger.i(TAG, "Track ended naturally -> triggering onTrackEnded callback")
                     runOnMainThread {
                         onTrackEnded?.invoke()
                     }
                 }
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                AppLogger.e(TAG, "ExoPlayer error occurred: errorCode=${error.errorCode}, name=${error.errorCodeName}, message=${error.message}", error)
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val reasonName = when (reason) {
+                    Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> "AUTO"
+                    Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> "SEEK"
+                    Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> "PLAYLIST_CHANGED"
+                    Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> "REPEAT"
+                    else -> "REASON_$reason"
+                }
+                AppLogger.v(TAG, "onMediaItemTransition: mediaId=${mediaItem?.mediaId}, reason=$reasonName")
             }
         })
     }
@@ -203,10 +229,23 @@ class AudioPlayerEngine(
 
     fun prepareTrack(song: Song, startPosition: Long = 0L, playWhenReady: Boolean = false) {
         runOnMainThread {
+            AppLogger.i(TAG, "prepareTrack: id=${song.id}, title='${song.title}', artist='${song.artist}', startPos=${startPosition}ms, playWhenReady=$playWhenReady")
             currentSongId = song.id
             hasCountedForCurrentTrack = false
 
-            val mediaItem = MediaItem.fromUri(Uri.parse(song.uri))
+            val mediaMetadata = androidx.media3.common.MediaMetadata.Builder()
+                .setTitle(song.title)
+                .setArtist(song.artist)
+                .setAlbumTitle(song.album)
+                .setArtworkUri(if (!song.albumArtUri.isNullOrBlank()) Uri.parse(song.albumArtUri) else null)
+                .build()
+
+            val mediaItem = MediaItem.Builder()
+                .setUri(Uri.parse(song.uri))
+                .setMediaId(song.id.toString())
+                .setMediaMetadata(mediaMetadata)
+                .build()
+
             // Always pass resetPosition = true so ExoPlayer resets from STATE_ENDED
             exoPlayer.setMediaItem(mediaItem, true)
             exoPlayer.prepare()
@@ -225,7 +264,9 @@ class AudioPlayerEngine(
 
     fun play() {
         runOnMainThread {
-            if (requestAudioFocus()) {
+            val focusGranted = requestAudioFocus()
+            AppLogger.v(TAG, "play() called: focusGranted=$focusGranted, currentPos=${exoPlayer.currentPosition}ms")
+            if (focusGranted) {
                 exoPlayer.play()
             }
         }
@@ -233,6 +274,7 @@ class AudioPlayerEngine(
 
     fun pause() {
         runOnMainThread {
+            AppLogger.v(TAG, "pause() called: currentPos=${exoPlayer.currentPosition}ms")
             exoPlayer.pause()
             abandonAudioFocus()
         }
@@ -250,6 +292,7 @@ class AudioPlayerEngine(
 
     fun seekTo(positionMs: Long) {
         runOnMainThread {
+            AppLogger.v(TAG, "seekTo: target=${positionMs}ms, duration=${exoPlayer.duration}ms")
             exoPlayer.seekTo(positionMs)
             _currentPosition.value = positionMs
         }

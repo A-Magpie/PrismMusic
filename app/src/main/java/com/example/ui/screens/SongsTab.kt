@@ -222,8 +222,7 @@ fun SongsTab(
                 OutlinedButton(
                     onClick = {
                         if (songs.isNotEmpty()) {
-                            val shuffled = songs.shuffled()
-                            viewModel.playSong(shuffled.first(), shuffled)
+                            viewModel.shufflePlaySongs(songs)
                         }
                     },
                     shape = RoundedCornerShape(12.dp),

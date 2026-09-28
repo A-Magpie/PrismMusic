@@ -131,8 +131,9 @@ fun FavoritesTab(
 
                     OutlinedButton(
                         onClick = {
-                            val shuffled = sortedFavorites.shuffled()
-                            viewModel.playSong(shuffled.first(), shuffled)
+                            if (sortedFavorites.isNotEmpty()) {
+                                viewModel.shufflePlaySongs(sortedFavorites)
+                            }
                         },
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
