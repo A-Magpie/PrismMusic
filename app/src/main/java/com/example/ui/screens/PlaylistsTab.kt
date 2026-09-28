@@ -854,112 +854,18 @@ fun PlaylistsTab(
                         }
 
                         // Multi-Select Floating Action Bar for Playlists
-                        AnimatedVisibility(
-                            visible = isPlaylistSelectionMode && selectedPlaylistIds.isNotEmpty(),
-                            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                        PlaylistMultiSelectActionBar(
+                            selectedCount = selectedPlaylistIds.size,
+                            totalCount = sortedPlaylists.size,
+                            accentColor = dynamicAccent,
+                            onSelectAll = { viewModel.selectAllPlaylists(sortedPlaylists) },
+                            onClose = { viewModel.clearPlaylistSelection() },
+                            onPlayAll = { viewModel.playSelectedPlaylistsNow(sortedPlaylists) },
+                            onDelete = { viewModel.deleteSelectedPlaylists(sortedPlaylists) },
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .padding(bottom = 75.dp)
-                        ) {
-                            var showBatchDeleteConfirm by remember { mutableStateOf(false) }
-
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Color(0xFF16161A))
-                                    .padding(horizontal = 12.dp, vertical = 10.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        IconButton(
-                                            onClick = { viewModel.clearPlaylistSelection() },
-                                            modifier = Modifier.size(30.dp)
-                                        ) {
-                                            Icon(Icons.Default.Close, contentDescription = "Close", tint = TextWhite, modifier = Modifier.size(18.dp))
-                                        }
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "${selectedPlaylistIds.size} Selected",
-                                            color = TextWhite,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 15.sp
-                                        )
-                                    }
-
-                                    TextButton(onClick = { viewModel.selectAllPlaylists(sortedPlaylists) }) {
-                                        Text(
-                                            text = if (selectedPlaylistIds.size == sortedPlaylists.size) "Deselect All" else "Select All (${sortedPlaylists.size})",
-                                            color = dynamicAccent,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Button(
-                                        onClick = { viewModel.playSelectedPlaylistsNow(sortedPlaylists) },
-                                        colors = ButtonDefaults.buttonColors(containerColor = dynamicAccent),
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Play All", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                    }
-
-                                    Button(
-                                        onClick = { showBatchDeleteConfirm = true },
-                                        colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(Icons.Default.Delete, contentDescription = null, tint = TextWhite, modifier = Modifier.size(18.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Delete", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                    }
-                                }
-                            }
-
-                            if (showBatchDeleteConfirm) {
-                                AlertDialog(
-                                    onDismissRequest = { showBatchDeleteConfirm = false },
-                                    containerColor = Color(0xFF1E1E24),
-                                    title = { Text("Delete ${selectedPlaylistIds.size} Playlist(s)?", color = TextWhite, fontWeight = FontWeight.Bold) },
-                                    text = {
-                                        Text("Are you sure you want to delete the selected playlist(s)? Tracks will not be removed from storage.", color = TextMuted)
-                                    },
-                                    confirmButton = {
-                                        Button(
-                                            onClick = {
-                                                showBatchDeleteConfirm = false
-                                                viewModel.deleteSelectedPlaylists(sortedPlaylists)
-                                            },
-                                            colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
-                                        ) {
-                                            Text("Delete", color = TextWhite, fontWeight = FontWeight.Bold)
-                                        }
-                                    },
-                                    dismissButton = {
-                                        TextButton(onClick = { showBatchDeleteConfirm = false }) {
-                                            Text("Cancel", color = TextMuted)
-                                        }
-                                    }
-                                )
-                            }
-                        }
+                        )
                 }
                 }
             }
@@ -1115,6 +1021,123 @@ fun PlaylistsTab(
                 song = song,
                 viewModel = viewModel,
                 onDismiss = { songToAddToAnotherPlaylist = null }
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlaylistMultiSelectActionBar(
+    selectedCount: Int,
+    totalCount: Int,
+    accentColor: Color,
+    onSelectAll: () -> Unit,
+    onClose: () -> Unit,
+    onPlayAll: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+
+    AnimatedVisibility(
+        visible = selectedCount > 0,
+        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF16161A))
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onClose,
+                        modifier = Modifier.size(30.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = TextWhite, modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "$selectedCount Selected",
+                        color = TextWhite,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                }
+
+                TextButton(onClick = onSelectAll) {
+                    Text(
+                        text = if (selectedCount == totalCount) "Deselect All" else "Select All ($totalCount)",
+                        color = accentColor,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onPlayAll,
+                    colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Play All", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+
+                Button(
+                    onClick = { showBatchDeleteConfirm = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, tint = TextWhite, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Delete", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        }
+
+        if (showBatchDeleteConfirm) {
+            AlertDialog(
+                onDismissRequest = { showBatchDeleteConfirm = false },
+                containerColor = Color(0xFF1E1E24),
+                title = { Text("Delete $selectedCount Playlist(s)?", color = TextWhite, fontWeight = FontWeight.Bold) },
+                text = {
+                    Text("Are you sure you want to delete the selected playlist(s)? Tracks will not be removed from storage.", color = TextMuted)
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showBatchDeleteConfirm = false
+                            onDelete()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentRed)
+                    ) {
+                        Text("Delete", color = TextWhite, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showBatchDeleteConfirm = false }) {
+                        Text("Cancel", color = TextMuted)
+                    }
+                }
             )
         }
     }
