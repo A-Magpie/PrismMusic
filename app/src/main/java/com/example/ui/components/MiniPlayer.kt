@@ -186,9 +186,8 @@ fun MiniPlayer(
                 }
             }
 
-            // Slim progress indicator bar at bottom
-            val totalDur = if (duration > 0) duration else (currentSong?.duration ?: 1L)
-            val progressFloat = (position.toFloat() / totalDur.toFloat()).coerceIn(0f, 1f)
+            val totalDur = (if (duration > 0) duration else (currentSong?.duration ?: 0L)).coerceAtLeast(1L)
+            val progressFloat = (position.coerceAtLeast(0L).toFloat() / totalDur.toFloat()).let { if (it.isNaN()) 0f else it.coerceIn(0f, 1f) }
 
             LinearProgressIndicator(
                 progress = { progressFloat },

@@ -107,6 +107,7 @@ fun ArtistsTab(
             com.example.ui.viewmodel.SortBy.DATE_ADDED -> artistList.sortedBy { it.tracks.maxOfOrNull { s -> s.dateAdded } ?: 0L }
             com.example.ui.viewmodel.SortBy.DURATION -> artistList.sortedBy { it.tracks.sumOf { s -> s.duration } }
             com.example.ui.viewmodel.SortBy.PLAY_COUNT -> artistList.sortedBy { it.tracks.sumOf { s -> s.playCount } }
+            com.example.ui.viewmodel.SortBy.CUSTOM -> artistList
         }
         if (sortDirection == SortDirection.DESCENDING) sorted.reversed() else sorted
     }
@@ -132,6 +133,7 @@ fun ArtistsTab(
                     com.example.ui.viewmodel.SortBy.DATE_ADDED -> rawArtistTracks.sortedBy { it.dateAdded }
                     com.example.ui.viewmodel.SortBy.DURATION -> rawArtistTracks.sortedBy { it.duration }
                     com.example.ui.viewmodel.SortBy.PLAY_COUNT -> rawArtistTracks.sortedBy { it.playCount }
+                    com.example.ui.viewmodel.SortBy.CUSTOM -> rawArtistTracks
                 }
                 if (sortDirection == SortDirection.DESCENDING) s.reversed() else s
             }

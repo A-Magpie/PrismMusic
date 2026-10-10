@@ -830,9 +830,6 @@ fun SettingsScreen(
 
                 // CATEGORY: Diagnostics & System Logging
                 val isLoggingEnabled by AppLogger.isLoggingEnabled.collectAsState()
-                var showLogViewerDialog by remember { mutableStateOf(false) }
-                var logContentText by remember { mutableStateOf("") }
-                var showClearConfirmDialog by remember { mutableStateOf(false) }
 
                 SettingsCategoryCard(
                     title = "Diagnostics & App Logging",

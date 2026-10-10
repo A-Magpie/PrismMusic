@@ -140,6 +140,12 @@ class MusicRepository(private val context: Context) {
         playlistDao.removeSongFromPlaylist(playlistId, songId)
     }
 
+    suspend fun reorderPlaylistSongs(playlistId: Long, songIdsInOrder: List<Long>) {
+        songIdsInOrder.forEachIndexed { index, songId ->
+            playlistDao.updateSongOrder(playlistId, songId, index)
+        }
+    }
+
     suspend fun updatePlaylistDetails(playlistId: Long, name: String, customCoverUri: String?) {
         playlistDao.updatePlaylistDetails(playlistId, name, customCoverUri)
     }

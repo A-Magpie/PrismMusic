@@ -94,23 +94,41 @@ object Id3TagEditor {
         header[4] = 0 // Revision
         header[5] = 0 // Flags
 
+        if (!file.extension.equals("mp3", ignoreCase = true)) {
+            // ID3v2 tags are only valid for MP3 files
+            return
+        }
+
         // Syncsafe integer for size
         encodeSyncSafe(totalFramesSize, header, 6)
 
-        // Read original audio content past any existing ID3v2 tag
         val (audioOffset, _) = getExistingTagSize(file)
-        val audioData = FileInputStream(file).use { fis ->
-            fis.skip(audioOffset)
-            fis.readBytes()
-        }
-
-        // Re-write file with new ID3 tag + existing audio payload
-        FileOutputStream(file).use { fos ->
-            fos.write(header)
-            for (frame in frames) {
-                fos.write(frame)
+        val tempFile = File(file.parentFile ?: return, "${file.name}.tmp_${System.currentTimeMillis()}")
+        try {
+            FileOutputStream(tempFile).use { fos ->
+                fos.write(header)
+                for (frame in frames) {
+                    fos.write(frame)
+                }
+                FileInputStream(file).use { fis ->
+                    fis.skip(audioOffset)
+                    val buffer = ByteArray(65536)
+                    var bytesRead: Int
+                    while (fis.read(buffer).also { bytesRead = it } != -1) {
+                        fos.write(buffer, 0, bytesRead)
+                    }
+                }
             }
-            fos.write(audioData)
+            if (tempFile.exists() && tempFile.length() > totalFramesSize) {
+                if (file.delete()) {
+                    tempFile.renameTo(file)
+                } else {
+                    tempFile.delete()
+                }
+            }
+        } catch (e: Exception) {
+            tempFile.delete()
+            Log.e(TAG, "Streaming ID3 tag update failed: ${e.message}")
         }
     }
 

@@ -78,7 +78,7 @@ fun VerticalVolumeControl(
     }
 
     val isMuted = currentVolume == 0
-    val volumeFraction = (currentVolume.toFloat() / maxVolume).coerceIn(0f, 1f)
+    val volumeFraction = (currentVolume.toFloat() / maxVolume.coerceAtLeast(1).toFloat()).let { if (it.isNaN()) 0f else it.coerceIn(0f, 1f) }
 
     Column(
         modifier = modifier

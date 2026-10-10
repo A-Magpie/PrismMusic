@@ -149,7 +149,7 @@ object MediaScanner {
                             albumId = albumId,
                             albumArtUri = albumArtUri,
                             folderPath = folderPath,
-                            lyrics = extractEmbeddedLyrics(context, path, contentUri)
+                            lyrics = ""
                         )
                     )
                 }
@@ -189,7 +189,7 @@ object MediaScanner {
                                         albumId = 0L,
                                         albumArtUri = null,
                                         folderPath = parentDir,
-                                        lyrics = extractEmbeddedLyrics(context, fPath, Uri.fromFile(file).toString())
+                                        lyrics = ""
                                     )
                                 )
                             }
@@ -241,12 +241,20 @@ object MediaScanner {
             }
             val existing = songDao.getSongById(resolvedSong.id)
             if (existing != null) {
-                val merged = resolvedSong.copy(
-                    playCount = existing.playCount,
-                    lastPlayedTimestamp = existing.lastPlayedTimestamp,
-                    isFavorite = existing.isFavorite,
-                    lyrics = if (existing.lyrics.isNotBlank()) existing.lyrics else resolvedSong.lyrics,
-                    albumArtUri = existing.albumArtUri ?: resolvedSong.albumArtUri ?: sharedArt
+                val merged = existing.copy(
+                    uri = resolvedSong.uri,
+                    path = resolvedSong.path,
+                    duration = if (resolvedSong.duration > 0) resolvedSong.duration else existing.duration,
+                    dateModified = resolvedSong.dateModified,
+                    dateAdded = if (existing.dateAdded > 0) existing.dateAdded else resolvedSong.dateAdded,
+                    folderPath = resolvedSong.folderPath,
+                    // Preserve user edits if present; only fallback to newly scanned if existing is blank
+                    title = existing.title.ifBlank { resolvedSong.title },
+                    artist = existing.artist.ifBlank { resolvedSong.artist },
+                    album = existing.album.ifBlank { resolvedSong.album },
+                    genre = if (existing.genre.isNotBlank() && existing.genre != "Unknown") existing.genre else resolvedSong.genre,
+                    albumArtUri = existing.albumArtUri ?: resolvedSong.albumArtUri ?: sharedArt,
+                    lyrics = existing.lyrics.ifBlank { resolvedSong.lyrics }
                 )
                 songDao.updateSong(merged)
             } else {

@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.example.ui.components.FloatingScrollbar
@@ -46,8 +47,13 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material3.AlertDialog
@@ -81,6 +87,11 @@ import com.example.ui.components.SongGridItem
 import com.example.ui.components.SongItemCard
 import com.example.ui.components.SortHeader
 import com.example.ui.components.SquareCoverArt
+import com.example.ui.components.PlaylistCoverArt
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.QueueMusic
 import com.example.ui.dialogs.AddToPlaylistDialog
 import com.example.ui.theme.AccentCyan
 import com.example.ui.theme.AccentRed
@@ -157,6 +168,7 @@ fun PlaylistsTab(
             SortBy.DATE_ADDED -> playlists.sortedBy { it.createdAt }
             SortBy.DURATION -> playlists.sortedBy { it.id }
             SortBy.PLAY_COUNT -> playlists.sortedBy { it.name }
+            SortBy.CUSTOM -> playlists
         }
         if (sortDirection == SortDirection.DESCENDING) sorted.reversed() else sorted
     }
@@ -177,15 +189,21 @@ fun PlaylistsTab(
             val playlist = selectedPlaylist!!
             val playlistSongsFlow = remember(playlist.id) { viewModel.getSongsForPlaylist(playlist.id) }
             val rawSongsInPlaylist by playlistSongsFlow.collectAsState(initial = emptyList())
-            val songsInPlaylist = remember(rawSongsInPlaylist, sortBy, sortDirection) {
-                val s = when (sortBy) {
-                    SortBy.TITLE -> rawSongsInPlaylist.sortedBy { it.title.lowercase() }
-                    SortBy.DATE_MODIFIED -> rawSongsInPlaylist.sortedBy { it.dateModified }
-                    SortBy.DATE_ADDED -> rawSongsInPlaylist.sortedBy { it.dateAdded }
-                    SortBy.DURATION -> rawSongsInPlaylist.sortedBy { it.duration }
-                    SortBy.PLAY_COUNT -> rawSongsInPlaylist.sortedBy { it.playCount }
+            var isReorderMode by remember { mutableStateOf(false) }
+            val songsInPlaylist = remember(rawSongsInPlaylist, sortBy, sortDirection, isReorderMode) {
+                if (isReorderMode || sortBy == SortBy.CUSTOM) {
+                    rawSongsInPlaylist
+                } else {
+                    val s = when (sortBy) {
+                        SortBy.CUSTOM -> rawSongsInPlaylist
+                        SortBy.TITLE -> rawSongsInPlaylist.sortedBy { it.title.lowercase() }
+                        SortBy.DATE_MODIFIED -> rawSongsInPlaylist.sortedBy { it.dateModified }
+                        SortBy.DATE_ADDED -> rawSongsInPlaylist.sortedBy { it.dateAdded }
+                        SortBy.DURATION -> rawSongsInPlaylist.sortedBy { it.duration }
+                        SortBy.PLAY_COUNT -> rawSongsInPlaylist.sortedBy { it.playCount }
+                    }
+                    if (sortDirection == SortDirection.DESCENDING) s.reversed() else s
                 }
-                if (sortDirection == SortDirection.DESCENDING) s.reversed() else s
             }
 
             Column(modifier = Modifier.fillMaxSize()) {
@@ -216,6 +234,18 @@ fun PlaylistsTab(
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = {
+                            isReorderMode = !isReorderMode
+                            if (isReorderMode) {
+                                viewModel.setTabSort("playlists", newSortBy = SortBy.CUSTOM)
+                            }
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.SwapVert,
+                                contentDescription = "Reorder Playlist",
+                                tint = if (isReorderMode) dynamicAccent else TextWhite
+                            )
+                        }
+                        IconButton(onClick = {
                             editingPlaylist = playlist
                             editPlaylistName = playlist.name
                             editPlaylistCoverUri = playlist.customCoverUri
@@ -228,7 +258,7 @@ fun PlaylistsTab(
                     }
                 }
 
-                if (songsInPlaylist.isNotEmpty()) {
+                if (songsInPlaylist.isNotEmpty() && !isReorderMode) {
                     Button(
                         onClick = { viewModel.playSong(songsInPlaylist.first(), songsInPlaylist) },
                         colors = ButtonDefaults.buttonColors(containerColor = dynamicAccent),
@@ -243,19 +273,41 @@ fun PlaylistsTab(
                     }
                 }
 
-                SortHeader(
-                    itemCount = songsInPlaylist.size,
-                    sortBy = sortBy,
-                    sortDirection = sortDirection,
-                    onSortByChanged = { viewModel.setTabSort("playlists", newSortBy = it) },
-                    onToggleDirection = {
-                        val newDir = if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING else SortDirection.ASCENDING
-                        viewModel.setTabSort("playlists", newSortDir = newDir)
-                    },
-                    layoutMode = layoutMode,
-                    onLayoutModeChanged = { viewModel.setLayoutMode("playlists", it) },
-                    accentColor = dynamicAccent
-                )
+                if (isReorderMode) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .glassmorphic(shape = RoundedCornerShape(10.dp), backgroundColor = dynamicAccent.copy(alpha = 0.15f))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Reorder Mode: Tap arrows to displace tracks",
+                            color = dynamicAccent,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        TextButton(onClick = { isReorderMode = false }) {
+                            Text("Done", color = dynamicAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                } else {
+                    SortHeader(
+                        itemCount = songsInPlaylist.size,
+                        sortBy = sortBy,
+                        sortDirection = sortDirection,
+                        onSortByChanged = { viewModel.setTabSort("playlists", newSortBy = it) },
+                        onToggleDirection = {
+                            val newDir = if (sortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING else SortDirection.ASCENDING
+                            viewModel.setTabSort("playlists", newSortDir = newDir)
+                        },
+                        layoutMode = layoutMode,
+                        onLayoutModeChanged = { viewModel.setLayoutMode("playlists", it) },
+                        accentColor = dynamicAccent
+                    )
+                }
 
                 if (songsInPlaylist.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -263,6 +315,33 @@ fun PlaylistsTab(
                     }
                 } else {
                 Box(modifier = Modifier.fillMaxSize()) {
+                    if (isReorderMode) {
+                        LazyColumn(
+                            state = detailListState,
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            contentPadding = PaddingValues(bottom = 80.dp)
+                        ) {
+                            itemsIndexed(songsInPlaylist, key = { _, s -> s.id }) { index, song ->
+                                PlaylistReorderItem(
+                                    song = song,
+                                    index = index,
+                                    totalCount = songsInPlaylist.size,
+                                    accentColor = dynamicAccent,
+                                    onMoveUp = {
+                                        if (index > 0) {
+                                            viewModel.reorderPlaylistSongs(playlist.id, index, index - 1, songsInPlaylist)
+                                        }
+                                    },
+                                    onMoveDown = {
+                                        if (index < songsInPlaylist.size - 1) {
+                                            viewModel.reorderPlaylistSongs(playlist.id, index, index + 1, songsInPlaylist)
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    } else {
                     when (layoutMode) {
                         ViewLayoutMode.LIST_NORMAL -> {
                             LazyColumn(
@@ -356,6 +435,7 @@ fun PlaylistsTab(
                                 }
                             }
                         }
+                    }
                     }
                     if (layoutMode == ViewLayoutMode.LIST_NORMAL || layoutMode == ViewLayoutMode.LIST_COMPACT) {
                         FloatingScrollbar(
@@ -543,9 +623,9 @@ fun PlaylistsTab(
                                                         }
                                                     }
                                                 }
-                                                SquareCoverArt(
-                                                    albumArtUri = playlist.customCoverUri,
-                                                    contentDescription = playlist.name,
+                                                PlaylistItemCover(
+                                                    viewModel = viewModel,
+                                                    playlist = playlist,
                                                     shape = RoundedCornerShape(10.dp),
                                                     modifier = Modifier.size(54.dp)
                                                 )
@@ -643,9 +723,9 @@ fun PlaylistsTab(
                                                         }
                                                     }
                                                 }
-                                                SquareCoverArt(
-                                                    albumArtUri = playlist.customCoverUri,
-                                                    contentDescription = playlist.name,
+                                                PlaylistItemCover(
+                                                    viewModel = viewModel,
+                                                    playlist = playlist,
                                                     shape = RoundedCornerShape(8.dp),
                                                     modifier = Modifier.size(38.dp)
                                                 )
@@ -717,9 +797,9 @@ fun PlaylistsTab(
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
                                                 Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f)) {
-                                                    SquareCoverArt(
-                                                        albumArtUri = playlist.customCoverUri,
-                                                        contentDescription = playlist.name,
+                                                    PlaylistItemCover(
+                                                        viewModel = viewModel,
+                                                        playlist = playlist,
                                                         shape = RoundedCornerShape(8.dp),
                                                         modifier = Modifier.fillMaxSize()
                                                     )
@@ -796,9 +876,9 @@ fun PlaylistsTab(
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
                                                 Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f)) {
-                                                    SquareCoverArt(
-                                                        albumArtUri = playlist.customCoverUri,
-                                                        contentDescription = playlist.name,
+                                                    PlaylistItemCover(
+                                                        viewModel = viewModel,
+                                                        playlist = playlist,
                                                         shape = RoundedCornerShape(6.dp),
                                                         modifier = Modifier.fillMaxSize()
                                                     )
@@ -861,6 +941,8 @@ fun PlaylistsTab(
                             onSelectAll = { viewModel.selectAllPlaylists(sortedPlaylists) },
                             onClose = { viewModel.clearPlaylistSelection() },
                             onPlayAll = { viewModel.playSelectedPlaylistsNow(sortedPlaylists) },
+                            onPlayNext = { viewModel.playSelectedPlaylistsNext(sortedPlaylists) },
+                            onAddToQueue = { viewModel.addSelectedPlaylistsToQueue(sortedPlaylists) },
                             onDelete = { viewModel.deleteSelectedPlaylists(sortedPlaylists) },
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
@@ -1034,6 +1116,8 @@ private fun PlaylistMultiSelectActionBar(
     onSelectAll: () -> Unit,
     onClose: () -> Unit,
     onPlayAll: () -> Unit,
+    onPlayNext: () -> Unit,
+    onAddToQueue: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1088,28 +1172,54 @@ private fun PlaylistMultiSelectActionBar(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Button(
                     onClick = onPlayAll,
                     colors = ButtonDefaults.buttonColors(containerColor = accentColor),
                     shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
                 ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Play All", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Text("Play", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
+                }
+
+                Button(
+                    onClick = onPlayNext,
+                    colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1.1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Default.QueueMusic, contentDescription = null, tint = TextWhite, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Text("Play Next", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, maxLines = 1)
+                }
+
+                Button(
+                    onClick = onAddToQueue,
+                    colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1.2f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Default.PlaylistAdd, contentDescription = null, tint = TextWhite, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Text("Add Queue", color = TextWhite, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, maxLines = 1)
                 }
 
                 Button(
                     onClick = { showBatchDeleteConfirm = true },
                     colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
                     shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
                 ) {
-                    Icon(Icons.Default.Delete, contentDescription = null, tint = TextWhite, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Delete", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Icon(Icons.Default.Delete, contentDescription = null, tint = TextWhite, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Text("Delete", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
                 }
             }
         }
@@ -1139,6 +1249,116 @@ private fun PlaylistMultiSelectActionBar(
                     }
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun PlaylistItemCover(
+    viewModel: MusicViewModel,
+    playlist: Playlist,
+    shape: androidx.compose.ui.graphics.Shape,
+    modifier: Modifier = Modifier
+) {
+    val previewCovers by remember(playlist.id) {
+        viewModel.getPlaylistPreviewCovers(playlist.id)
+    }.collectAsState(initial = emptyList())
+
+    PlaylistCoverArt(
+        customCoverUri = playlist.customCoverUri,
+        previewCovers = previewCovers,
+        contentDescription = playlist.name,
+        shape = shape,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun PlaylistReorderItem(
+    song: Song,
+    index: Int,
+    totalCount: Int,
+    accentColor: Color,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .glassmorphic(
+                shape = RoundedCornerShape(12.dp),
+                backgroundColor = DarkCardGlass
+            )
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(accentColor.copy(alpha = 0.22f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "${index + 1}",
+                    color = accentColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            SquareCoverArt(
+                albumArtUri = song.albumArtUri,
+                contentDescription = song.title,
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.size(42.dp)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = song.title,
+                    color = TextWhite,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = song.artist,
+                    color = TextMuted,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = onMoveUp,
+                    enabled = index > 0,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowUp,
+                        contentDescription = "Move Up",
+                        tint = if (index > 0) TextWhite else Color(0x33FFFFFF),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                IconButton(
+                    onClick = onMoveDown,
+                    enabled = index < totalCount - 1,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Move Down",
+                        tint = if (index < totalCount - 1) TextWhite else Color(0x33FFFFFF),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
         }
     }
 }

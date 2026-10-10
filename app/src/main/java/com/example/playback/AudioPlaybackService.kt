@@ -553,6 +553,16 @@ class AudioPlaybackService : MediaSessionService() {
         }
     }
 
+    fun updateSongInQueue(updatedSong: Song) {
+        queue = queue.map { if (it.id == updatedSong.id) updatedSong else it }.toMutableList()
+        originalQueue = originalQueue.map { if (it.id == updatedSong.id) updatedSong else it }.toMutableList()
+        if (currentSong?.id == updatedSong.id) {
+            currentSong = updatedSong
+            updateNotification()
+            saveCurrentPlaybackState()
+        }
+    }
+
     fun togglePlayPause() {
         if (currentSong == null && queue.isNotEmpty()) {
             loadTrack(queue[0], 0L, true)

@@ -180,7 +180,7 @@ fun SearchTab(
                             }
 
                             val visibleSongs = if (showAllSongs) matchingSongs else matchingSongs.take(5)
-                            items(visibleSongs, key = { it.id }) { song ->
+                            items(visibleSongs, key = { "search_song_${it.id}" }) { song ->
                                 SongItemCard(
                                     song = song,
                                     isPlaying = isPlaying,
@@ -225,7 +225,7 @@ fun SearchTab(
                             }
 
                             val visibleArtists = if (showAllArtists) matchingArtists else matchingArtists.take(3)
-                            items(visibleArtists, key = { it }) { artistName ->
+                            items(visibleArtists, key = { "search_artist_${it}" }) { artistName ->
                                 val artistTracks = allSongs.filter { it.artist == artistName }
                                 Box(
                                     modifier = Modifier
@@ -309,7 +309,7 @@ fun SearchTab(
                             }
 
                             val visibleAlbums = if (showAllAlbums) matchingAlbums else matchingAlbums.take(3)
-                            items(visibleAlbums, key = { it.name }) { album ->
+                            items(visibleAlbums, key = { "search_album_${it.name}" }) { album ->
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()

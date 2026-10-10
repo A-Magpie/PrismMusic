@@ -82,6 +82,7 @@ fun DustyTracksTab(
             SortBy.DATE_MODIFIED -> dustyTracks.sortedBy { it.dateModified }
             SortBy.DATE_ADDED -> dustyTracks.sortedBy { it.dateAdded }
             SortBy.DURATION -> dustyTracks.sortedBy { it.duration }
+            SortBy.CUSTOM -> dustyTracks
         }
         if (sortDirection == SortDirection.DESCENDING) sorted.reversed() else sorted
     }

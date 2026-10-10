@@ -60,7 +60,8 @@ enum class SortBy {
     DATE_MODIFIED,
     DATE_ADDED,
     DURATION,
-    PLAY_COUNT
+    PLAY_COUNT,
+    CUSTOM
 }
 
 enum class SortDirection {
@@ -497,6 +498,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             SortBy.DATE_ADDED -> songs.sortedBy { it.dateAdded }
             SortBy.DURATION -> songs.sortedBy { it.duration }
             SortBy.PLAY_COUNT -> songs.sortedBy { it.playCount }
+            SortBy.CUSTOM -> songs
         }
         if (dir == SortDirection.DESCENDING) sorted.reversed() else sorted
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -610,8 +612,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             val song = repository.getSongById(songId) ?: return@launch
             val updated = song.copy(lyrics = newLyrics)
             repository.updateSong(updated)
-            if (_currentSong.value?.id == songId) {
-                _currentSong.value = updated
+            withContext(Dispatchers.Main) {
+                if (_currentSong.value?.id == songId) {
+                    _currentSong.value = updated
+                }
+                service?.updateSongInQueue(updated)
+                _queue.value = _queue.value.map { if (it.id == songId) updated else it }
             }
             com.example.util.AppLogger.i("MusicViewModel", "Updated lyrics for song id=$songId")
         }
@@ -1072,10 +1078,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             val updated = repository.updateSongTags(
                 song, title, artist, album, genre, lyrics, coverArtBytes
             )
-            if (_currentSong.value?.id == song.id) {
-                _currentSong.value = updated
+            withContext(Dispatchers.Main) {
+                if (_currentSong.value?.id == song.id) {
+                    _currentSong.value = updated
+                }
+                service?.updateSongInQueue(updated)
+                _queue.value = _queue.value.map { if (it.id == updated.id) updated else it }
+                songForTagEditor.value = null
             }
-            songForTagEditor.value = null
         }
     }
 
@@ -1403,6 +1413,114 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         clearPlaylistSelection()
+    }
+
+    fun playSelectedPlaylistsNext(playlists: List<Playlist>) {
+        val selected = playlists.filter { it.id in selectedPlaylistIds.value }
+        viewModelScope.launch(Dispatchers.IO) {
+            val allTracks = mutableListOf<Song>()
+            selected.forEach { playlist ->
+                val songs = repository.getSongsForPlaylist(playlist.id).firstOrNull() ?: emptyList()
+                allTracks.addAll(songs)
+            }
+            if (allTracks.isNotEmpty()) {
+                withContext(Dispatchers.Main) {
+                    allTracks.reversed().forEach { playNextInQueue(it) }
+                }
+            }
+        }
+        clearPlaylistSelection()
+    }
+
+    fun addSelectedPlaylistsToQueue(playlists: List<Playlist>) {
+        val selected = playlists.filter { it.id in selectedPlaylistIds.value }
+        viewModelScope.launch(Dispatchers.IO) {
+            val allTracks = mutableListOf<Song>()
+            selected.forEach { playlist ->
+                val songs = repository.getSongsForPlaylist(playlist.id).firstOrNull() ?: emptyList()
+                allTracks.addAll(songs)
+            }
+            if (allTracks.isNotEmpty()) {
+                withContext(Dispatchers.Main) {
+                    allTracks.forEach { addToQueueEnd(it) }
+                }
+            }
+        }
+        clearPlaylistSelection()
+    }
+
+    fun reorderPlaylistSongs(playlistId: Long, fromIndex: Int, toIndex: Int, currentSongs: List<Song>) {
+        if (fromIndex == toIndex || fromIndex !in currentSongs.indices || toIndex !in currentSongs.indices) return
+        val mutable = currentSongs.toMutableList()
+        val item = mutable.removeAt(fromIndex)
+        mutable.add(toIndex, item)
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.reorderPlaylistSongs(playlistId, mutable.map { it.id })
+            com.example.util.AppLogger.i("MusicViewModel", "Reordered song from $fromIndex to $toIndex in playlist $playlistId")
+        }
+    }
+
+    fun getPlaylistPreviewCovers(playlistId: Long): kotlinx.coroutines.flow.Flow<List<String>> {
+        return repository.getSongsForPlaylist(playlistId).map { songs ->
+            songs.mapNotNull { it.albumArtUri }.filter { it.isNotBlank() }.distinct().take(4)
+        }
+    }
+
+    // Folder Multi-Selection State
+    val selectedFolderPaths = MutableStateFlow<Set<String>>(emptySet())
+    val isFolderSelectionMode = MutableStateFlow(false)
+
+    fun toggleFolderSelection(path: String) {
+        val current = selectedFolderPaths.value.toMutableSet()
+        if (current.contains(path)) {
+            current.remove(path)
+        } else {
+            current.add(path)
+        }
+        selectedFolderPaths.value = current
+        isFolderSelectionMode.value = current.isNotEmpty()
+    }
+
+    fun selectAllFolders(paths: List<String>) {
+        val current = selectedFolderPaths.value
+        if (current.size == paths.size) {
+            selectedFolderPaths.value = emptySet()
+            isFolderSelectionMode.value = false
+        } else {
+            selectedFolderPaths.value = paths.toSet()
+            isFolderSelectionMode.value = true
+        }
+    }
+
+    fun clearFolderSelection() {
+        selectedFolderPaths.value = emptySet()
+        isFolderSelectionMode.value = false
+    }
+
+    fun playSelectedFoldersNow(paths: Set<String>, allSongs: List<Song>) {
+        val matchingSongs = allSongs.filter { s -> paths.any { p -> s.folderPath == p || s.folderPath.startsWith("$p/") } }
+        if (matchingSongs.isNotEmpty()) {
+            playSong(matchingSongs.first(), matchingSongs)
+        }
+        clearFolderSelection()
+    }
+
+    fun playSelectedFoldersNext(paths: Set<String>, allSongs: List<Song>) {
+        val matchingSongs = allSongs.filter { s -> paths.any { p -> s.folderPath == p || s.folderPath.startsWith("$p/") } }
+        matchingSongs.reversed().forEach { playNextInQueue(it) }
+        clearFolderSelection()
+    }
+
+    fun addSelectedFoldersToQueue(paths: Set<String>, allSongs: List<Song>) {
+        val matchingSongs = allSongs.filter { s -> paths.any { p -> s.folderPath == p || s.folderPath.startsWith("$p/") } }
+        matchingSongs.forEach { addToQueueEnd(it) }
+        clearFolderSelection()
+    }
+
+    fun deleteSelectedFolders(context: Context, paths: Set<String>, allSongs: List<Song>) {
+        val matchingSongs = allSongs.filter { s -> paths.any { p -> s.folderPath == p || s.folderPath.startsWith("$p/") } }
+        deleteSelectedSongs(context, matchingSongs)
+        clearFolderSelection()
     }
 
     override fun onCleared() {

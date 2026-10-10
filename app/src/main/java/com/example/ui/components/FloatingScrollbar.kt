@@ -74,7 +74,7 @@ fun FloatingScrollbar(
             .graphicsLayer { this.alpha = alpha }
     ) {
         val containerHeight = maxHeight
-        val heightRatio = (visibleCount.toFloat() / totalCount.toFloat()).coerceIn(0.08f, 0.45f)
+        val heightRatio = (visibleCount.toFloat() / totalCount.toFloat().coerceAtLeast(1f)).let { if (it.isNaN()) 0.08f else it.coerceIn(0.08f, 0.45f) }
         val thumbHeight = containerHeight * heightRatio
         val travelDistance = containerHeight - thumbHeight
 
@@ -83,7 +83,7 @@ fun FloatingScrollbar(
         val firstSize = visibleItems.firstOrNull()?.size?.toFloat() ?: 1f
         val fractionalIndex = firstIndex + (firstOffset / firstSize.coerceAtLeast(1f))
         val maxIndex = (totalCount - visibleCount).toFloat().coerceAtLeast(1f)
-        val scrollFraction = (fractionalIndex / maxIndex).coerceIn(0f, 1f)
+        val scrollFraction = (fractionalIndex / maxIndex).let { if (it.isNaN()) 0f else it.coerceIn(0f, 1f) }
         val thumbOffset = travelDistance * scrollFraction
 
         Box(
@@ -157,7 +157,7 @@ fun FloatingScrollbar(
             .graphicsLayer { this.alpha = alpha }
     ) {
         val containerHeight = maxHeight
-        val heightRatio = (visibleCount.toFloat() / totalCount.toFloat()).coerceIn(0.08f, 0.45f)
+        val heightRatio = (visibleCount.toFloat() / totalCount.toFloat().coerceAtLeast(1f)).let { if (it.isNaN()) 0.08f else it.coerceIn(0.08f, 0.45f) }
         val thumbHeight = containerHeight * heightRatio
         val travelDistance = containerHeight - thumbHeight
 
@@ -166,7 +166,7 @@ fun FloatingScrollbar(
         val firstSize = visibleItems.firstOrNull()?.size?.height?.toFloat() ?: 1f
         val fractionalIndex = firstIndex + (firstOffset / firstSize.coerceAtLeast(1f))
         val maxIndex = (totalCount - visibleCount).toFloat().coerceAtLeast(1f)
-        val scrollFraction = (fractionalIndex / maxIndex).coerceIn(0f, 1f)
+        val scrollFraction = (fractionalIndex / maxIndex).let { if (it.isNaN()) 0f else it.coerceIn(0f, 1f) }
         val thumbOffset = travelDistance * scrollFraction
 
         Box(

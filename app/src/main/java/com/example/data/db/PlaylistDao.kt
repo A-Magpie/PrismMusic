@@ -40,4 +40,10 @@ interface PlaylistDao {
         ORDER BY ps.orderIndex ASC
     """)
     fun getSongsForPlaylist(playlistId: Long): Flow<List<Song>>
+
+    @Query("UPDATE playlist_songs SET orderIndex = :newOrder WHERE playlistId = :playlistId AND songId = :songId")
+    suspend fun updateSongOrder(playlistId: Long, songId: Long, newOrder: Int)
+
+    @Query("SELECT songId FROM playlist_songs WHERE playlistId = :playlistId ORDER BY orderIndex ASC")
+    suspend fun getSongIdsForPlaylist(playlistId: Long): List<Long>
 }

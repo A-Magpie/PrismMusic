@@ -283,9 +283,9 @@ fun LockScreenContent(
 
             // Seekbar
             Column(modifier = Modifier.fillMaxWidth()) {
-                val totalDur = if (duration > 0) duration else (currentSong?.duration ?: 1L)
-                val currentPos = if (isSeeking) (seekProgress * totalDur).toLong() else position
-                val progressFloat = (currentPos.toFloat() / totalDur.toFloat()).coerceIn(0f, 1f)
+                val totalDur = (if (duration > 0) duration else (currentSong?.duration ?: 0L)).coerceAtLeast(1L)
+                val currentPos = if (isSeeking) (seekProgress * totalDur).toLong() else position.coerceAtLeast(0L)
+                val progressFloat = (currentPos.toFloat() / totalDur.toFloat()).let { if (it.isNaN()) 0f else it.coerceIn(0f, 1f) }
 
                 val seekbarEnabled = !(isTouchLocked && appSettings.lockDisableSeekbar)
 

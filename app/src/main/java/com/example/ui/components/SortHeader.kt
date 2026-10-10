@@ -99,6 +99,7 @@ fun SortHeader(
                             SortBy.DATE_ADDED -> "Date Added"
                             SortBy.DURATION -> "Duration"
                             SortBy.PLAY_COUNT -> "Play Count"
+                            SortBy.CUSTOM -> "Custom Order"
                         },
                         color = TextWhite,
                         fontSize = 12.sp,
@@ -143,6 +144,13 @@ fun SortHeader(
                         text = { Text("Play Count", color = TextWhite) },
                         onClick = {
                             onSortByChanged(SortBy.PLAY_COUNT)
+                            menuExpanded = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Custom Order", color = TextWhite) },
+                        onClick = {
+                            onSortByChanged(SortBy.CUSTOM)
                             menuExpanded = false
                         }
                     )

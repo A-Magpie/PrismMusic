@@ -80,6 +80,7 @@ fun FavoritesTab(
             SortBy.DATE_ADDED -> favorites.sortedBy { it.dateAdded }
             SortBy.DURATION -> favorites.sortedBy { it.duration }
             SortBy.PLAY_COUNT -> favorites.sortedBy { it.playCount }
+            SortBy.CUSTOM -> favorites
         }
         if (sortDirection == SortDirection.DESCENDING) sorted.reversed() else sorted
     }
